@@ -3,7 +3,7 @@ package jobrunaggregatorapi
 import "time"
 
 // For all structs that end in "Row", they correspond to a Big Query row in a similarly
-// named table.  See https://console.cloud.google.com/bigquery?project=openshift-ci-data-analysis
+// named table.  See https://console.cloud.google.com/bigquery?project=<theProject>
 // and pick a dataset in use to see the table.
 type UnifiedTestRunRow struct {
 	TestName        string
@@ -16,7 +16,7 @@ type UnifiedTestRunRow struct {
 	//JobLabels       []string
 }
 
-// There does not seem to be a corresponding table for this
+// This info is filled from the result of some SELECT
 type AggregatedTestRunRow struct {
 	AggregationStartDate time.Time
 	TestName             string
@@ -38,7 +38,7 @@ type BackendDisruptionRow struct {
 	DisruptionSeconds int
 }
 
-// There does not seem to be a corresponding table for this
+// This info is filled from the result of some SELECT
 type BackendDisruptionStatisticsRow struct {
 	BackendName       string
 	Mean              float64
