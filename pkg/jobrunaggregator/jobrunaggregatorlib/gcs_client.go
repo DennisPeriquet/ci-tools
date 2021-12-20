@@ -98,11 +98,14 @@ func (o *ciGCSClient) ListJobRunNamesOlderThanFourHours(ctx context.Context, job
 	return jobRunProcessingCh, errorCh, nil
 }
 
+// This is where we read the GCS bucket to get:
+// 1) the GCS prow job path
+// 2) all junit files (of the form */junit*.xml)
 func (o *ciGCSClient) ReadJobRunFromGCS(ctx context.Context, jobGCSRootLocation, jobName, jobRunID string) (jobrunaggregatorapi.JobRunInfo, error) {
 	fmt.Printf("reading job run %v/%v.\n", jobGCSRootLocation, jobRunID)
 
 	query := &storage.Query{
-		// This ends up being the equivalent of:
+		// This ends up being the equivalent of something like this:
 		// https://gcsweb-ci.apps.ci.l2s4.p1.openshiftapps.com/gcs/origin-ci-test/logs/periodic-ci-openshift-release-master-nightly-4.9-upgrade-from-stable-4.8-e2e-metal-ipi-upgrade
 		Prefix: jobGCSRootLocation,
 
@@ -115,6 +118,10 @@ func (o *ciGCSClient) ReadJobRunFromGCS(ctx context.Context, jobGCSRootLocation,
 	if err := query.SetAttrSelection([]string{"Name", "Created", "Generation"}); err != nil {
 		return nil, err
 	}
+
+	// NOTE: StartOffset and EndOffset are strings that the GCS api uses to limit where you
+	// start and end reading; here, we limit it by the jobRunID which is a 19 digit integer
+	// (e.g., 1471556373845118976)
 	// start reading for this jobrun bucket
 	query.StartOffset = fmt.Sprintf("%s/%s", jobGCSRootLocation, jobRunID)
 	// end reading after this jobrun bucket
