@@ -123,7 +123,8 @@ func NewBigQueryReleaseTableCreateFlagsCommand() *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:          "create-releases",
-		Long:         `Create release tables in bigquery`,
+		Short:        "Create release tables in bigquery",
+		Long:         "Create release tables in bigquery",
 		SilenceUsage: true,
 
 		RunE: func(cmd *cobra.Command, args []string) error {

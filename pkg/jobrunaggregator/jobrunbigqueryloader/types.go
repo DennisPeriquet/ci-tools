@@ -17,6 +17,10 @@ import (
 )
 
 type BigQueryInserter interface {
+
+	// dryRunInserter implements its own "Put" method below for writing to stdout only.
+	// Otherwise, the "Put" method in the bigquery package is called (which writes to Big Query).
+	//
 	Put(ctx context.Context, src interface{}) (err error)
 }
 
@@ -32,8 +36,11 @@ func NewDryRunInserter(out io.Writer, table string) BigQueryInserter {
 	}
 }
 
+// For dry run mode, we use a "Put" method that writes to stdout only.
 func (d dryRunInserter) Put(ctx context.Context, src interface{}) (err error) {
 	srcVal := reflect.ValueOf(src)
+
+	// single INSERT
 	if srcVal.Kind() != reflect.Slice {
 		fmt.Fprintf(d.out, "INSERT into %v: %v\n", d.table, src)
 		return
@@ -43,6 +50,7 @@ func (d dryRunInserter) Put(ctx context.Context, src interface{}) (err error) {
 		return
 	}
 
+	// Build one BULK INSERT
 	buf := &bytes.Buffer{}
 	fmt.Fprintf(buf, "BULK INSERT into %v\n", d.table)
 	for i := 0; i < srcVal.Len(); i++ {
@@ -74,6 +82,10 @@ func newJobRunRow(jobRun jobrunaggregatorapi.JobRunInfo, prowJob *prowv1.ProwJob
 type testRunRow struct {
 	prowJob    *prowv1.ProwJob
 	jobRun     jobrunaggregatorapi.JobRunInfo
+
+	// ci-tools/pkg/junit/types.go mentions that a TestSuite can itself hold
+	// TestSuites, hence declared as a slice below; but we only use a single
+	// TestSuite today.
 	testSuites []string
 	testCase   *junit.TestCase
 }
@@ -88,8 +100,13 @@ func newTestRunRow(jobRun jobrunaggregatorapi.JobRunInfo, prowJob *prowv1.ProwJo
 
 }
 
+// This compiles fine with or without it.
+// Why is this here?
 var _ bigquery.ValueSaver = &testRunRow{}
 
+// The "Put" method uploads a row to Big Query.
+// "Put" uses a "Save" method (if defined) to produce a new row.  Here, testRunRow implements
+// "Save", so this function is called when creating a row for uploading.
 func (v *testRunRow) Save() (map[string]bigquery.Value, string, error) {
 
 	// the linter requires not setting a default value. This seems strictly worse and more error-prone to me, but
@@ -105,6 +122,7 @@ func (v *testRunRow) Save() (map[string]bigquery.Value, string, error) {
 		status = "Passed"
 	}
 
+	// We can add v.TestSuites[0] here so that the TestRun table gets populated with it.
 	row := map[string]bigquery.Value{
 		"Name":       v.testCase.Name,
 		"JobRunName": v.jobRun.GetJobRunID(),

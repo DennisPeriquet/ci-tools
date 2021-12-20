@@ -58,7 +58,8 @@ func NewJobRunsAnalyzerCommand() *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:          "analyze-job-runs",
-		Long:         `Aggregate job runs, determine pass/fail counts for every test, decide if the average is an overall pass or fail.`,
+		Long:         "Aggregate job runs, determine pass/fail counts for every test, decide if the average is an overall pass or fail.",
+		Short:        "Aggregate job runs, determine pass/fail counts, decide if average is an overall pass or fail.",
 		SilenceUsage: true,
 
 		RunE: func(cmd *cobra.Command, args []string) error {

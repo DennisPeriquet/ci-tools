@@ -54,6 +54,7 @@ const (
 `
 )
 
+// These fields correspond to the JobRuns table
 type JobRunRow struct {
 	Name       string
 	JobName    string

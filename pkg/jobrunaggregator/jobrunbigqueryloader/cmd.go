@@ -19,6 +19,7 @@ type BigQueryTestRunUploadFlags struct {
 	DataCoordinates *jobrunaggregatorlib.BigQueryDataCoordinates
 	Authentication  *jobrunaggregatorlib.GoogleAuthenticationFlags
 
+	// Indicates if we actually upload to Big Query or just output to stdout (for debugging purposes)
 	DryRun bool
 }
 
@@ -41,7 +42,8 @@ func NewBigQueryTestRunUploadFlagsCommand() *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:          "upload-test-runs",
-		Long:         `Upload test runs to bigquery`,
+		Short:        "Upload test runs to bigquery",
+		Long:         "Upload test runs to bigquery",
 		SilenceUsage: true,
 
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -105,9 +107,13 @@ func (f *BigQueryTestRunUploadFlags) ToOptions(ctx context.Context) (*allJobsLoa
 		ciDataSet := bigQueryClient.Dataset(f.DataCoordinates.DataSetID)
 		jobRunTable := ciDataSet.Table(jobrunaggregatorapi.LegacyJobRunTableName)
 		testRunTable := ciDataSet.Table(jobrunaggregatorlib.TestRunTableName)
+
+		// Use Inserter that will write to Big Query
 		jobRunTableInserter = jobRunTable.Inserter()
 		testRunTableInserter = testRunTable.Inserter()
 	} else {
+
+		// Use Inserter that will just write to stdout
 		jobRunTableInserter = NewDryRunInserter(os.Stdout, jobrunaggregatorapi.LegacyJobRunTableName)
 		testRunTableInserter = NewDryRunInserter(os.Stdout, jobrunaggregatorlib.TestRunTableName)
 	}
