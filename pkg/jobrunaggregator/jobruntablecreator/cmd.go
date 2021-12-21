@@ -32,8 +32,8 @@ func NewBigQueryJobRunTableCreateFlagsCommand() *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:          "create-tables",
-		Short:        "Create JobRun and TestRun tables in bigquery",
-		Long:         "Create JobRun and TestRun tables in bigquery",
+		Short:        "Create Jobs table in bigquery",
+		Long:         "Create Jobs table in bigquery",
 		SilenceUsage: false,
 
 		RunE: func(cmd *cobra.Command, args []string) error {
