@@ -84,7 +84,7 @@ func newJob(name string) *jobRowBuilder {
 			Release:                     currRelease,
 			FromRelease:                 fromRelease,
 			CollectDisruption:           true, // by default we collect disruption
-			CollectTestRuns:             true, // by default we collect disruption
+			CollectTestRuns:             true, // by default we collect testruns
 			RunsUpgrade:                 runsUpgrade,
 			RunsE2EParallel:             runsE2E,
 			RunsE2ESerial:               runsSerial,
