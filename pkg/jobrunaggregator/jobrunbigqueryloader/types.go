@@ -35,7 +35,8 @@ func NewDryRunInserter(out io.Writer, table string) BigQueryInserter {
 func (d dryRunInserter) Put(ctx context.Context, src interface{}) (err error) {
 	srcVal := reflect.ValueOf(src)
 	if srcVal.Kind() != reflect.Slice {
-		fmt.Fprintf(d.out, "INSERT into %v: %v\n", d.table, src)
+		ss := src.(*jobrunaggregatorapi.JobRunRow)
+		fmt.Fprintf(d.out, "INSERT into %v: nm=(%v), jn=(%v)\n", d.table, ss.Name, ss.JobName)
 		return
 	}
 
