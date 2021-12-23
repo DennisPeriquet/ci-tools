@@ -123,10 +123,12 @@ ORDER BY JobRuns.Name DESC
 LIMIT 1
 `)
 
+	fmt.Printf("queryString: %q", queryString)
 	query := c.client.Query(queryString)
 	query.QueryConfig.Parameters = []bigquery.QueryParameter{
 		{Name: "JobName", Value: jobName},
 	}
+	fmt.Printf("query: %+v", query)
 	lastJobRunRow, err := query.Read(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query aggregation table with %q: %w", queryString, err)
