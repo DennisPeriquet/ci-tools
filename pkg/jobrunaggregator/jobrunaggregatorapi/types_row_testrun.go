@@ -29,7 +29,7 @@ const (
     "name": "Status",
     "description" : "Status of the test (e.g., pass, fail)"
     "type": "STRING"
-  }
+  },
   {
     "mode": "NULLABLE",
     "name": "TestSuite",
