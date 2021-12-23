@@ -56,11 +56,11 @@ func (r *allJobsTableCreatorOptions) Run(ctx context.Context) error {
 		if err != nil {
 			return err
 		}
-		if err := jobRunsTable.Create(ctx, &bigquery.TableMetadata{Schema: schema}); err != nil {
+		if err := testRunsTable.Create(ctx, &bigquery.TableMetadata{Schema: schema}); err != nil {
 			return err
 		}
 	} else {
-		fmt.Fprintf(os.Stdout, "table already exists: %s\n", jobrunaggregatorlib.JobRunTableName)
+		fmt.Fprintf(os.Stdout, "table already exists: %s\n", jobrunaggregatorlib.TestRunTableName)
 	}
 	return nil
 }
