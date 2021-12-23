@@ -47,7 +47,7 @@ func (d dryRunInserter) Put(ctx context.Context, src interface{}) (err error) {
 	fmt.Fprintf(buf, "BULK INSERT into %v\n", d.table)
 	for i := 0; i < srcVal.Len(); i++ {
 		s := srcVal.Index(i).Interface().(*testRunRow)
-		fmt.Fprintf(buf, "\tINSERT into %v: prowJob=%v, ts=%v lts=%v tcn=%v\n", d.table, s.prowJob.ObjectMeta.Name,
+		fmt.Fprintf(buf, "\tINSERT into %v: prowJob=(%v), ts=(%v) lts=(%v) tcn=(%v)\n", d.table, s.prowJob.ObjectMeta.Name,
 			s.testSuites[0], len(s.testSuites), s.testCase.Name)
 	}
 	fmt.Fprint(d.out, buf.String())
