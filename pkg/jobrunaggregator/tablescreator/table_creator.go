@@ -48,5 +48,19 @@ func (r *allJobsTableCreatorOptions) Run(ctx context.Context) error {
 		fmt.Fprintf(os.Stdout, "table already exists: %s\n", jobrunaggregatorlib.JobRunTableName)
 	}
 
+	// Create TestRunsTable
+	testRunsTable := r.ciDataSet.Table(jobrunaggregatorlib.TestRunTableName)
+	_, err = testRunsTable.Metadata(ctx)
+	if err != nil {
+		schema, err := bigquery.SchemaFromJSON([]byte(jobrunaggregatorapi.TestRunSchema))
+		if err != nil {
+			return err
+		}
+		if err := jobRunsTable.Create(ctx, &bigquery.TableMetadata{Schema: schema}); err != nil {
+			return err
+		}
+	} else {
+		fmt.Fprintf(os.Stdout, "table already exists: %s\n", jobrunaggregatorlib.JobRunTableName)
+	}
 	return nil
 }
