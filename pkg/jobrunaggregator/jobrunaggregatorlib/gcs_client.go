@@ -42,8 +42,12 @@ func (o *ciGCSClient) ListJobRunNamesOlderThanFourHours(ctx context.Context, job
 	if err := query.SetAttrSelection([]string{"Name", "Created"}); err != nil {
 		return nil, nil, err
 	}
+
+	// Instead of starting at startingID=0, run this and see where we are skipping and how
+	// old the jobs are.  Then pick a job that is just before where you want to be so you
+	// can see skips, place that jobrunid in the StartOffset.
 	//query.StartOffset = fmt.Sprintf("logs/%s/%s", jobName, startingID)
-	query.StartOffset = fmt.Sprintf("logs/%s/%s", jobName, "14756")
+	query.StartOffset = fmt.Sprintf("logs/%s/%s", jobName, "1475614363518767104")
 	fmt.Printf("  starting from %v\n", query.StartOffset)
 
 	now := time.Now()
@@ -81,12 +85,9 @@ func (o *ciGCSClient) ListJobRunNamesOlderThanFourHours(ctx context.Context, job
 			}
 
 			// TODO if it's more than 100 days old, we don't need it
-			if now.Sub(attrs.Created) > (1 * 32 * time.Hour) {
-				if (it_count % 10000) == 0 {
-					fmt.Println(now.Sub(attrs.Created))
-					fmt.Printf("%4s: it_count = %d; prow_count = %d/%d, %s/%s\n", ">100", it_count, prow_count, len(jobRunProcessingCh),
-						jobName, attrs.Name)
-				}
+			if now.Sub(attrs.Created) > (1 * 17 * time.Hour) {
+				fmt.Printf("%4s: it_count = %d; prow_count = %d/%d, %s/%s\n", ">100", it_count, prow_count, len(jobRunProcessingCh),
+					jobName, attrs.Name)
 				if strings.HasSuffix(attrs.Name, "latest-build.txt") {
 					// Every bucket contains a latest-build.txt file -- ignore it
 					continue
@@ -94,21 +95,45 @@ func (o *ciGCSClient) ListJobRunNamesOlderThanFourHours(ctx context.Context, job
 				switch {
 				case strings.HasSuffix(attrs.Name, ".json"):
 					jobRunId = strings.Split(attrs.Name, "/")[2]
-					fmt.Printf("%4s: %s/%s, Age=%v\n", "Skip", jobName, jobRunId, now.Sub(attrs.Created))
+					fmt.Printf("%5s: %s/%s, Age=%v\n", "JSkip", jobName, jobRunId, now.Sub(attrs.Created))
 					query.StartOffset = fmt.Sprintf("logs/%s/%s", jobName, NextJobRunID(jobRunId))
 					it = bkt.Objects(ctx, query)
 				case strings.HasSuffix(attrs.Name, "prowjob.json"):
 					jobRunId = filepath.Base(filepath.Dir(attrs.Name))
-					fmt.Printf("%4s: %s/%s, Age=%v\n", "Skip", jobName, jobRunId, now.Sub(attrs.Created))
+					fmt.Printf("%5s: %s/%s, Age=%v\n", "PSkip", jobName, jobRunId, now.Sub(attrs.Created))
 					query.StartOffset = fmt.Sprintf("logs/%s/%s", jobName, NextJobRunID(jobRunId))
 					it = bkt.Objects(ctx, query)
 				default:
+					fmt.Printf("%5s: %s/%s, Age=%v, %s\n", "MSkip", jobName, jobRunId, now.Sub(attrs.Created), attrs.Name)
 				}
 				continue
 			}
 			// chosen because CI jobs only take four hours max (so far), so we only get completed jobs
 			if now.Sub(attrs.Created) < (4 * time.Hour) {
 				fmt.Printf("%4s: it_count = %d; prow_count = %d/%d, %s\n", "<  4", it_count, prow_count, len(jobRunProcessingCh), jobName)
+				if strings.HasSuffix(attrs.Name, "latest-build.txt") {
+					// Every bucket contains a latest-build.txt file -- ignore it
+					continue
+				}
+				switch {
+				case strings.HasSuffix(attrs.Name, "build-log.txt"):
+					jobRunId = strings.Split(attrs.Name, "/")[2]
+					fmt.Printf("%5s: %s/%s, Age=%v\n", "BSkip", jobName, jobRunId, now.Sub(attrs.Created))
+					query.StartOffset = fmt.Sprintf("logs/%s/%s", jobName, NextJobRunID(jobRunId))
+					it = bkt.Objects(ctx, query)
+				case strings.HasSuffix(attrs.Name, ".json"):
+					jobRunId = strings.Split(attrs.Name, "/")[2]
+					fmt.Printf("%5s: %s/%s, Age=%v\n", "4Skip", jobName, jobRunId, now.Sub(attrs.Created))
+					query.StartOffset = fmt.Sprintf("logs/%s/%s", jobName, NextJobRunID(jobRunId))
+					it = bkt.Objects(ctx, query)
+				case strings.HasSuffix(attrs.Name, "prowjob.json"):
+					jobRunId = filepath.Base(filepath.Dir(attrs.Name))
+					fmt.Printf("%5s: %s/%s, Age=%v\n", "5Skip", jobName, jobRunId, now.Sub(attrs.Created))
+					query.StartOffset = fmt.Sprintf("logs/%s/%s", jobName, NextJobRunID(jobRunId))
+					it = bkt.Objects(ctx, query)
+				default:
+					fmt.Printf("%5s: %s/%s, Age=%v, %s\n", "LSkip", jobName, jobRunId, now.Sub(attrs.Created), attrs.Name)
+				}
 				continue
 			}
 
@@ -122,8 +147,11 @@ func (o *ciGCSClient) ListJobRunNamesOlderThanFourHours(ctx context.Context, job
 
 				jobRunProcessingCh <- jobRunId
 
+				query.StartOffset = fmt.Sprintf("logs/%s/%s", jobName, NextJobRunID(jobRunId))
+				it = bkt.Objects(ctx, query)
+				continue
 			default:
-				//fmt.Printf("checking %q\n", attrs.Name)
+				fmt.Printf("%4s: %d  %s %s %s\n", "Chec", it_count, jobName, jobRunId, attrs.Name)
 			}
 		}
 	}()
