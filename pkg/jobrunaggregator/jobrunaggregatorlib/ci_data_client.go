@@ -123,7 +123,7 @@ ORDER BY JobRuns.Name DESC
 LIMIT 1
 `)
 
-	fmt.Printf("queryString: %q", queryString)
+	fmt.Printf("queryString: %s\n", queryString)
 	query := c.client.Query(queryString)
 	query.QueryConfig.Parameters = []bigquery.QueryParameter{
 		{Name: "JobName", Value: jobName},

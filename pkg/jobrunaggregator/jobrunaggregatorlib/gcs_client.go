@@ -42,7 +42,8 @@ func (o *ciGCSClient) ListJobRunNamesOlderThanFourHours(ctx context.Context, job
 	if err := query.SetAttrSelection([]string{"Name", "Created"}); err != nil {
 		return nil, nil, err
 	}
-	query.StartOffset = fmt.Sprintf("logs/%s/%s", jobName, startingID)
+	//query.StartOffset = fmt.Sprintf("logs/%s/%s", jobName, startingID)
+	query.StartOffset = fmt.Sprintf("logs/%s/%s", jobName, "14756")
 	fmt.Printf("  starting from %v\n", query.StartOffset)
 
 	now := time.Now()
@@ -54,12 +55,16 @@ func (o *ciGCSClient) ListJobRunNamesOlderThanFourHours(ctx context.Context, job
 
 	errorCh := make(chan error, 100)
 	jobRunProcessingCh := make(chan string, 100)
+
 	// Find the query results we're the most interested in. In this case, we're interested in files called prowjob.json
 	// so that we only get each jobrun once and we queue them in a channel
 	go func() {
+		var it_count, prow_count int
+		var jobRunId string
 		defer close(jobRunProcessingCh)
 
 		for {
+			it_count++
 			if ctx.Err() != nil {
 				return
 			}
@@ -67,6 +72,7 @@ func (o *ciGCSClient) ListJobRunNamesOlderThanFourHours(ctx context.Context, job
 			attrs, err := it.Next()
 			if err == iterator.Done {
 				// we're done adding values, so close the channel
+				fmt.Printf("%4s: it_count = %d; prow_count = %d/%d, %s\n", "Done", it_count, prow_count, len(jobRunProcessingCh), jobName)
 				return
 			}
 			if err != nil {
@@ -75,18 +81,45 @@ func (o *ciGCSClient) ListJobRunNamesOlderThanFourHours(ctx context.Context, job
 			}
 
 			// TODO if it's more than 100 days old, we don't need it
-			if now.Sub(attrs.Created) > (100 * 24 * time.Hour) {
+			if now.Sub(attrs.Created) > (1 * 32 * time.Hour) {
+				if (it_count % 10000) == 0 {
+					fmt.Println(now.Sub(attrs.Created))
+					fmt.Printf("%4s: it_count = %d; prow_count = %d/%d, %s/%s\n", ">100", it_count, prow_count, len(jobRunProcessingCh),
+						jobName, attrs.Name)
+				}
+				if strings.HasSuffix(attrs.Name, "latest-build.txt") {
+					// Every bucket contains a latest-build.txt file -- ignore it
+					continue
+				}
+				switch {
+				case strings.HasSuffix(attrs.Name, ".json"):
+					jobRunId = strings.Split(attrs.Name, "/")[2]
+					fmt.Printf("%4s: %s/%s, Age=%v\n", "Skip", jobName, jobRunId, now.Sub(attrs.Created))
+					query.StartOffset = fmt.Sprintf("logs/%s/%s", jobName, NextJobRunID(jobRunId))
+					it = bkt.Objects(ctx, query)
+				case strings.HasSuffix(attrs.Name, "prowjob.json"):
+					jobRunId = filepath.Base(filepath.Dir(attrs.Name))
+					fmt.Printf("%4s: %s/%s, Age=%v\n", "Skip", jobName, jobRunId, now.Sub(attrs.Created))
+					query.StartOffset = fmt.Sprintf("logs/%s/%s", jobName, NextJobRunID(jobRunId))
+					it = bkt.Objects(ctx, query)
+				default:
+				}
 				continue
 			}
 			// chosen because CI jobs only take four hours max (so far), so we only get completed jobs
 			if now.Sub(attrs.Created) < (4 * time.Hour) {
+				fmt.Printf("%4s: it_count = %d; prow_count = %d/%d, %s\n", "<  4", it_count, prow_count, len(jobRunProcessingCh), jobName)
 				continue
 			}
 
 			switch {
 			case strings.HasSuffix(attrs.Name, "prowjob.json"):
-				jobRunId := filepath.Base(filepath.Dir(attrs.Name))
+				jobRunId = filepath.Base(filepath.Dir(attrs.Name))
 				fmt.Printf("Queued jobrun/%q/%q\n", jobName, jobRunId)
+				prow_count++
+				fmt.Printf("%4s: it_count = %d; prow_count = %d/%d, %s/%s\n", "Foun", it_count, prow_count, len(jobRunProcessingCh),
+					jobName, jobRunId)
+
 				jobRunProcessingCh <- jobRunId
 
 			default:
