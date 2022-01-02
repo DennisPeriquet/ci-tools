@@ -52,8 +52,13 @@ func (o *ciGCSClient) ListJobRunNamesOlderThanFourHours(ctx context.Context, job
 	bkt := o.gcsClient.Bucket(o.gcsBucketName)
 	it := bkt.Objects(ctx, query)
 
+	// DP: 100 refers to the max number of jobRuns we'll buffer.  If
+	// the number of jobs to process exceeds 100, the go routine will
+	// block until a job is finished getting processed on the thing
+	// consuming the jobsRuns.
 	errorCh := make(chan error, 100)
 	jobRunProcessingCh := make(chan string, 100)
+
 	// Find the query results we're the most interested in. In this case, we're interested in files called prowjob.json
 	// so that we only get each jobrun once and we queue them in a channel
 	go func() {
@@ -75,10 +80,15 @@ func (o *ciGCSClient) ListJobRunNamesOlderThanFourHours(ctx context.Context, job
 			}
 
 			// TODO if it's more than 100 days old, we don't need it
+			// DP: If we change 100 here to 2, then we can get jobs up to 2 days old
+			// This will cut down the number of jobs to upload during a dryrun.
 			if now.Sub(attrs.Created) > (100 * 24 * time.Hour) {
 				continue
 			}
 			// chosen because CI jobs only take four hours max (so far), so we only get completed jobs
+			// DP: this doesn't make sense because if a CI job takes 4 hours max, then we are skipping
+			// jobs that take just under four hours.  We should look for jobs that are greater than the
+			// minimum time it takes for a job to complete.
 			if now.Sub(attrs.Created) < (4 * time.Hour) {
 				continue
 			}
