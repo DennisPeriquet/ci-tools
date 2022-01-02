@@ -44,6 +44,10 @@ func (o *allJobsLoaderOptions) Run(ctx context.Context) error {
 		return fmt.Errorf("failed to get jobs: %w", err)
 	}
 
+	// DP: For every job (68 today), we launch a goroutine to go out to the
+	// GCS bucket for that job and fetch the data for each jobrun.
+	// Each job is assigned a GCS bucket
+	// Each GCS bucket contains all the jobruns for that job.
 	fmt.Printf("Launching threads to upload test runs for %d jobs\n", len(jobs))
 
 	waitGroup := sync.WaitGroup{}
@@ -110,6 +114,9 @@ type jobLoaderOptions struct {
 }
 
 func (o *jobLoaderOptions) Run(ctx context.Context) error {
+
+	// DP: Launch a goroutine to get the jobrun info out of the GCS bucket for this
+	// job.
 	fmt.Printf("Analyzing job %q.\n", o.jobName)
 
 	lastJobRun, err := o.getLastJobRunWithDataFn(ctx, o.jobName)
@@ -121,6 +128,7 @@ func (o *jobLoaderOptions) Run(ctx context.Context) error {
 		startingJobRunID = jobrunaggregatorlib.NextJobRunID(lastJobRun.Name)
 	}
 
+	// DP: jobRunProcessingCh contains all the jobruns IDs to process.
 	jobRunProcessingCh, errorCh, err := o.gcsClient.ListJobRunNamesOlderThanFourHours(ctx, o.jobName, startingJobRunID)
 	if err != nil {
 		return err
@@ -157,6 +165,8 @@ func (o *jobLoaderOptions) Run(ctx context.Context) error {
 			defer concurrentWorkers.Release(1)
 			defer currentUploaders.Done()
 
+			// DP: Process each jobRunID that was found in jobRunProcessingCh
+			// Read that jobRunID's info from the GCS bucket and upload to big query.
 			if err := jobRunInserter.Run(ctx); err != nil {
 				errorCh <- err
 			}
