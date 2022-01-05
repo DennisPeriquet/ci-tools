@@ -5,11 +5,11 @@
     "version": "0.2.0",
     "configurations": [
         {
-            "name": "Launch Package",
+            "name": "upload-releases",
             "type": "go",
             "request": "launch",
             "mode": "auto",
-            "program": "${fileDirname}",
+            "program": "cmd/job-run-aggregator/main.go",
             "args": [ "upload-releases",
                     "--bigquery-dataset", "dperique_test",
                     "--google-service-account-credential-file",
@@ -19,6 +19,18 @@
                         "--architectures",
                         "amd64"
                     ],
+            "showGlobalVariables": false
+        },
+        {
+            "name": "upload-test-runs",
+            "type": "go",
+            "request": "launch",
+            "mode": "auto",
+            "program": "cmd/job-run-aggregator/main.go",
+            "args": [ "upload-test-runs", "--dry-run",
+                    "--bigquery-dataset", "dperique_test",
+                    "--google-service-account-credential-file",
+                        "/Users/dperique/redhat_keys/openshift-ci-data-analysis-0ed2e02855f9-reader.json" ],
             "showGlobalVariables": false
         }
     ]
