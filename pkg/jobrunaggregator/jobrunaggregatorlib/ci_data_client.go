@@ -588,10 +588,8 @@ LIMIT 1`,
 
 func (c *ciDataClient) tableForFrequency(frequency string) (string, error) {
 	switch frequency {
-	case "ByOneDay":
-		return "TestRunSummaryPerDay", nil
 	case "ByOneWeek":
-		return "TestRunSummaryPerWeek", nil
+		return "TestRuns_Summary_Last200Runs", nil
 
 	default:
 		return "", fmt.Errorf("unrecognized frequency: %q", frequency)
@@ -724,7 +722,7 @@ func (c *ciDataClient) ListAggregatedTestRunsForJob(ctx context.Context, frequen
 	queryString := strings.Replace(
 		`SELECT *
 FROM DATA_SET_LOCATION.TABLE_NAME
-WHERE TABLE_NAME.AggregationStartDate >= @TimeCutOff AND TABLE_NAME.JobName = @JobName
+WHERE TABLE_NAME.JobName = @JobName
 `,
 		"TABLE_NAME", frequencyTable, -1)
 
@@ -732,7 +730,6 @@ WHERE TABLE_NAME.AggregationStartDate >= @TimeCutOff AND TABLE_NAME.JobName = @J
 
 	query := c.client.Query(queryString)
 	query.QueryConfig.Parameters = []bigquery.QueryParameter{
-		{Name: "TimeCutOff", Value: startDay},
 		{Name: "JobName", Value: jobName},
 	}
 	rows, err := query.Read(ctx)
