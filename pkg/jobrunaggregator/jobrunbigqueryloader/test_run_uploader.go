@@ -4,8 +4,6 @@ import (
 	"context"
 	"fmt"
 
-	"cloud.google.com/go/bigquery"
-
 	prowv1 "k8s.io/test-infra/prow/apis/prowjobs/v1"
 
 	"github.com/openshift/ci-tools/pkg/jobrunaggregator/jobrunaggregatorapi"
@@ -51,11 +49,40 @@ func (o *testRunUploader) uploadTestSuite(ctx context.Context, jobRun jobrunaggr
 		}
 	}
 
-	toInsert := []bigquery.ValueSaver{}
+	toInsert := []*jobrunaggregatorapi.TestRunRow{}
 	for i := range suite.TestCases {
 		testCase := suite.TestCases[i]
 		if testCase.SkipMessage != nil {
 			continue
+		}
+
+		var status string
+		switch {
+		case testCase.FailureOutput != nil:
+			status = "Failed"
+		case testCase.SkipMessage != nil:
+			status = "Skipped"
+		default:
+			status = "Passed"
+		}
+
+		var testSuiteStr string
+		testSuiteStr = suite.Name
+		if suite.Children != nil {
+			// There is generally a single test suite.  But if there are more, we will
+			// concat them to make a unique test suite name.
+			for _, childTestSuiteName := range suite.Children {
+				testSuiteStr += "|||"
+				testSuiteStr := childTestSuiteName
+			}
+		}
+
+		tmpTestRunRow = &jobrunaggregatorapi.TestRunRow{
+			Name:       testCase.Name,
+			JobRunName: jobRun.GetJobRunID(),
+			JobName:    jobRun.GetJobName(),
+			Status:     status,
+			TestSuite:  testSuiteStr,
 		}
 		toInsert = append(toInsert, newTestRunRow(jobRun, prowJob, currSuites, testCase))
 	}

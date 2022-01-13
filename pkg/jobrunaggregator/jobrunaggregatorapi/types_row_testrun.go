@@ -4,10 +4,6 @@ import (
 	"strings"
 
 	"cloud.google.com/go/bigquery"
-
-	prowv1 "k8s.io/test-infra/prow/apis/prowjobs/v1"
-
-	"github.com/openshift/ci-tools/pkg/junit"
 )
 
 const (
@@ -54,10 +50,11 @@ const (
 // Move here from jobrunbigqueryloader/types.go
 //
 type TestRunRow struct {
-	ProwJob    *prowv1.ProwJob
-	JobRun     JobRunInfo
-	TestSuites []string
-	TestCase   *junit.TestCase
+	Name       string
+	JobRunName string
+	JobName    string
+	Status     string
+	TestSuite  string
 }
 
 // Ensure (at compile time) that testRunRow implements the bigquery.ValueSaver interface
