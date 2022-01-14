@@ -1,11 +1,5 @@
 package jobrunaggregatorapi
 
-import (
-	"strings"
-
-	"cloud.google.com/go/bigquery"
-)
-
 const (
 	TestRunTableName = "TestRuns"
 
@@ -58,38 +52,38 @@ type TestRunRow struct {
 }
 
 // Ensure (at compile time) that testRunRow implements the bigquery.ValueSaver interface
-var _ bigquery.ValueSaver = &TestRunRow{}
+//var _ bigquery.ValueSaver = &TestRunRow{}
 
-func (v *TestRunRow) Save() (map[string]bigquery.Value, string, error) {
-
-	// the linter requires not setting a default value. This seems strictly worse and more error-prone to me, but
-	// I am a slave to the bot.
-	//status := "Unknown"
-	var status string
-	switch {
-	case v.TestCase.FailureOutput != nil:
-		status = "Failed"
-	case v.TestCase.SkipMessage != nil:
-		status = "Skipped"
-	default:
-		status = "Passed"
-	}
-
-	var testSuiteStr string
-	if len(v.TestSuites) == 1 {
-		testSuiteStr = v.TestSuites[0]
-	} else {
-		// There is generally a single test suite.  But if there are more, we will
-		// concat them to make a unique test suite name.
-		testSuiteStr = strings.Join(v.TestSuites, "|||")
-	}
-	row := map[string]bigquery.Value{
-		"Name":       v.TestCase.Name,
-		"JobRunName": v.JobRun.GetJobRunID(),
-		"JobName":    v.JobRun.GetJobName(),
-		"Status":     status,
-		"TestSuite":  testSuiteStr,
-	}
-
-	return row, "", nil
-}
+//func (v *TestRunRow) Save() (map[string]bigquery.Value, string, error) {
+//
+//	// the linter requires not setting a default value. This seems strictly worse and more error-prone to me, but
+//	// I am a slave to the bot.
+//	//status := "Unknown"
+//	var status string
+//	switch {
+//	case v.TestCase.FailureOutput != nil:
+//		status = "Failed"
+//	case v.TestCase.SkipMessage != nil:
+//		status = "Skipped"
+//	default:
+//		status = "Passed"
+//	}
+//
+//	var testSuiteStr string
+//	if len(v.TestSuites) == 1 {
+//		testSuiteStr = v.TestSuites[0]
+//	} else {
+//		// There is generally a single test suite.  But if there are more, we will
+//		// concat them to make a unique test suite name.
+//		testSuiteStr = strings.Join(v.TestSuites, "|||")
+//	}
+//	row := map[string]bigquery.Value{
+//		"Name":       v.TestCase.Name,
+//		"JobRunName": v.JobRun.GetJobRunID(),
+//		"JobName":    v.JobRun.GetJobName(),
+//		"Status":     status,
+//		"TestSuite":  testSuiteStr,
+//	}
+//
+//	return row, "", nil
+//}

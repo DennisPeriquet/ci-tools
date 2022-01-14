@@ -26,12 +26,12 @@ func newJobRunRow(jobRun jobrunaggregatorapi.JobRunInfo, prowJob *prowv1.ProwJob
 
 }
 
-func newTestRunRow(jobRun jobrunaggregatorapi.JobRunInfo, prowJob *prowv1.ProwJob, testSuites []string, testCase *junit.TestCase) *jobrunaggregatorapi.TestRunRow {
+func newTestRunRow(jobRun jobrunaggregatorapi.JobRunInfo, status string, testSuiteStr string, testCase *junit.TestCase) *jobrunaggregatorapi.TestRunRow {
 	return &jobrunaggregatorapi.TestRunRow{
-		ProwJob:    prowJob,
-		JobRun:     jobRun,
-		TestSuites: testSuites,
-		TestCase:   testCase,
+		Name:       testCase.Name,
+		JobRunName: jobRun.GetJobRunID(),
+		JobName:    jobRun.GetJobName(),
+		Status:     status,
+		TestSuite:  testSuiteStr,
 	}
-
 }

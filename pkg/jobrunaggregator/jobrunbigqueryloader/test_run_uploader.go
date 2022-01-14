@@ -72,19 +72,11 @@ func (o *testRunUploader) uploadTestSuite(ctx context.Context, jobRun jobrunaggr
 			// There is generally a single test suite.  But if there are more, we will
 			// concat them to make a unique test suite name.
 			for _, childTestSuiteName := range suite.Children {
-				testSuiteStr += "|||"
-				testSuiteStr := childTestSuiteName
+				testSuiteStr += fmt.Sprintf("|||%s", childTestSuiteName)
 			}
 		}
 
-		tmpTestRunRow = &jobrunaggregatorapi.TestRunRow{
-			Name:       testCase.Name,
-			JobRunName: jobRun.GetJobRunID(),
-			JobName:    jobRun.GetJobName(),
-			Status:     status,
-			TestSuite:  testSuiteStr,
-		}
-		toInsert = append(toInsert, newTestRunRow(jobRun, prowJob, currSuites, testCase))
+		toInsert = append(toInsert, newTestRunRow(jobRun, status, testSuiteStr, testCase))
 	}
 	if err := o.testRunInserter.Put(ctx, toInsert); err != nil {
 		return err
