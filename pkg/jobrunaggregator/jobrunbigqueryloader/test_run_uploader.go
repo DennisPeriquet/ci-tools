@@ -71,8 +71,8 @@ func (o *testRunUploader) uploadTestSuite(ctx context.Context, jobRun jobrunaggr
 		if suite.Children != nil {
 			// There is generally a single test suite.  But if there are more, we will
 			// concat them to make a unique test suite name.
-			for _, childTestSuiteName := range suite.Children {
-				testSuiteStr += fmt.Sprintf("|||%s", childTestSuiteName)
+			for _, childTestSuite := range suite.Children {
+				testSuiteStr += fmt.Sprintf("|||%s", childTestSuite.Name)
 			}
 		}
 

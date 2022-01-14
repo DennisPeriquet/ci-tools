@@ -97,9 +97,7 @@ func (d dryRunInserter) Put(ctx context.Context, src interface{}) (err error) {
 
 		switch s := srcVal.Index(i).Interface().(type) {
 		case *jobrunaggregatorapi.TestRunRow:
-			//fmt.Fprintf(buf, "\tINSERT into %v: prowJob=%v, ts=%v, lts=%v, tcn=%v\n", d.table, s.ProwJob.ObjectMeta.Name,
-			//	s.TestSuites[0], len(s.TestSuites), s.TestCase.Name)
-			fmt.Fprintf(buf, "\tINSERT into %v: ts=%v, status=%v, tcn=%v\n", d.table, s.TestSuite, s.Status, s.Name)
+			fmt.Fprintf(buf, "\tINSERT into %v: %#v\n", d.table, s)
 
 		case *jobrunaggregatorapi.JobRunRow:
 			fmt.Fprintf(buf, "\tINSERT into %v: name=%v, jobname=%v, status=%v\n", d.table, s.Name, s.JobName, s.Status)
