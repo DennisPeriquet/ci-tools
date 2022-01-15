@@ -23,29 +23,29 @@ func newTestRunUploader(testRunInserter jobrunaggregatorlib.BigQueryInserter) up
 }
 
 func (o *testRunUploader) uploadContent(ctx context.Context, jobRun jobrunaggregatorapi.JobRunInfo, prowJob *prowv1.ProwJob) error {
-	fmt.Printf("  uploading junit test runs: %q/%q\n", jobRun.GetJobName(), jobRun.GetJobRunID())
+	fmt.Printf("  uploading junit test runs: %q/%q, unused prowJob (%v)\n", jobRun.GetJobName(), jobRun.GetJobRunID(), &prowJob)
 	combinedJunitContent, err := jobRun.GetCombinedJUnitTestSuites(ctx)
 	if err != nil {
 		return err
 	}
 
-	return o.uploadTestSuites(ctx, jobRun, prowJob, combinedJunitContent)
+	return o.uploadTestSuites(ctx, jobRun, combinedJunitContent)
 }
 
-func (o *testRunUploader) uploadTestSuites(ctx context.Context, jobRun jobrunaggregatorapi.JobRunInfo, prowJob *prowv1.ProwJob, suites *junit.TestSuites) error {
+func (o *testRunUploader) uploadTestSuites(ctx context.Context, jobRun jobrunaggregatorapi.JobRunInfo, suites *junit.TestSuites) error {
 
 	for _, testSuite := range suites.Suites {
-		if err := o.uploadTestSuite(ctx, jobRun, prowJob, []string{}, testSuite); err != nil {
+		if err := o.uploadTestSuite(ctx, jobRun, []string{}, testSuite); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func (o *testRunUploader) uploadTestSuite(ctx context.Context, jobRun jobrunaggregatorapi.JobRunInfo, prowJob *prowv1.ProwJob, parentSuites []string, suite *junit.TestSuite) error { //nolint
+func (o *testRunUploader) uploadTestSuite(ctx context.Context, jobRun jobrunaggregatorapi.JobRunInfo, parentSuites []string, suite *junit.TestSuite) error {
 	currSuites := append(parentSuites, suite.Name)
 	for _, testSuite := range suite.Children {
-		if err := o.uploadTestSuite(ctx, jobRun, prowJob, currSuites, testSuite); err != nil {
+		if err := o.uploadTestSuite(ctx, jobRun, currSuites, testSuite); err != nil {
 			return err
 		}
 	}
