@@ -90,6 +90,9 @@ func NewCIDataClient(dataCoordinates BigQueryDataCoordinates, client *bigquery.C
 // JobRow slice.  As of now, there are 134 jobs.  These jobs are initially
 // and statically added (primed) in the "Run" method in the jobtableprimer package.
 func (c *ciDataClient) ListAllJobs(ctx context.Context) ([]jobrunaggregatorapi.JobRow, error) {
+	// For Debugging, you can set "LIMIT X" where X is small
+	// so that you can process only a small subset of jobs while
+	// you debug.
 	queryString := c.dataCoordinates.SubstituteDataSetLocation(
 		`SELECT *
 FROM DATA_SET_LOCATION.Jobs

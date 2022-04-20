@@ -137,10 +137,13 @@ func generatePresubmit(clusterName string) prowconfig.Presubmit {
 				jobconfig.LabelCluster:        clusterName,
 			},
 		},
-		AlwaysRun:    true,
+		AlwaysRun:    false,
 		Optional:     optional,
 		Trigger:      prowconfig.DefaultTriggerFor(clusterName + "-dry"),
 		RerunCommand: prowconfig.DefaultRerunCommandFor(clusterName + "-dry"),
+		RegexpChangeMatcher: prowconfig.RegexpChangeMatcher{
+			RunIfChanged: "^clusters/.*",
+		},
 		Brancher: prowconfig.Brancher{
 			Branches: []string{jobconfig.ExactlyBranch("master"), jobconfig.FeatureBranch("master")},
 		},
@@ -196,7 +199,7 @@ func generateContainer(image, clusterName string, extraArgs []string, extraVolum
 			},
 		}...)
 	}
-	if clusterName == string(api.ClusterBuild01) || clusterName == string(api.ClusterBuild02) || clusterName == string(api.ClusterVSphere) {
+	if clusterName == string(api.ClusterVSphere) {
 		env = append(env, v1.EnvVar{
 			Name: "github_client_id",
 			ValueFrom: &v1.EnvVarSource{

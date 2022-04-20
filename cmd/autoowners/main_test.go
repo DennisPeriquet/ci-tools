@@ -22,6 +22,21 @@ func assertEqual(t *testing.T, actual, expected interface{}) {
 	}
 }
 
+func TestMakeHeader(t *testing.T) {
+	actual := makeHeader("destination", "source", "src-repo")
+	expected := `# DO NOT EDIT; this file is auto-generated using https://github.com/openshift/ci-tools.
+# Fetched from https://github.com/source/src-repo root OWNERS
+# If the repo had OWNERS_ALIASES then the aliases were expanded
+# Logins who are not members of 'destination' organization were filtered out
+# See the OWNERS docs: https://git.k8s.io/community/contributors/guide/owners.md
+
+`
+
+	if diff := cmp.Diff(expected, actual); diff != "" {
+		t.Errorf("Actual differs from expected:\n%s", diff)
+	}
+}
+
 func TestResolveAliases(t *testing.T) {
 	ra := RepoAliases{}
 	ra["sig-alias"] = sets.NewString("bob", "carol")

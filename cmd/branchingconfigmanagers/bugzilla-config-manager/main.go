@@ -72,7 +72,7 @@ func main() {
 
 	configPath := path.Join(opts.pluginConfigDir, config.PluginConfigFile)
 	agent := plugins.ConfigAgent{}
-	if err := agent.Load(configPath, []string{opts.pluginConfigDir}, "_pluginconfig.yaml", false, false); err != nil {
+	if err := agent.Load(configPath, []string{opts.pluginConfigDir}, "_pluginconfig.yaml", false, true); err != nil {
 		logrus.WithError(err).Fatal("failed to load Prow plugin configuration")
 	}
 
@@ -217,7 +217,7 @@ func reconcileConfig(cfg *plugins.Bugzilla, developmentVersion *ocplifecycle.Maj
 	// * if not latestGA: add $Version+1.z to DependentBugTargetReleases
 	// * TargetRelease: $VERSION.z
 	// * ValidateByDefault: true
-	sort.Slice(gaVersions, func(i, j int) bool { return gaVersions[i].String() < gaVersions[j].String() })
+	sort.Slice(gaVersions, func(i, j int) bool { return gaVersions[i].Less(gaVersions[j]) })
 	for idx, gaVersion := range gaVersions {
 		isLatestGA := idx == len(gaVersions)-1
 

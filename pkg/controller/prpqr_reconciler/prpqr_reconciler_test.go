@@ -2,6 +2,7 @@ package prpqr_reconciler
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -14,6 +15,7 @@ import (
 	ctrlruntimeclient "sigs.k8s.io/controller-runtime/pkg/client"
 	fakectrlruntimeclient "sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
+	"sigs.k8s.io/yaml"
 
 	"github.com/openshift/ci-tools/pkg/api"
 	v1 "github.com/openshift/ci-tools/pkg/api/pullrequestpayloadqualification/v1"
@@ -21,6 +23,7 @@ import (
 )
 
 func TestReconcile(t *testing.T) {
+	logrus.SetLevel(logrus.DebugLevel)
 	testCases := []struct {
 		name     string
 		prowJobs []ctrlruntimeclient.Object
@@ -136,6 +139,21 @@ func TestReconcile(t *testing.T) {
 				},
 			},
 		},
+		{
+			name: "basic aggregated case",
+			prpqr: []ctrlruntimeclient.Object{
+				&v1.PullRequestPayloadQualificationRun{
+					ObjectMeta: metav1.ObjectMeta{Name: "prpqr-test", Namespace: "test-namespace"},
+					Spec: v1.PullRequestPayloadTestSpec{
+						PullRequest: v1.PullRequestUnderTest{Org: "test-org", Repo: "test-repo", BaseRef: "test-branch", BaseSHA: "123456", PullRequest: v1.PullRequest{Number: 100, Author: "test", SHA: "12345", Title: "test-pr"}},
+						Jobs: v1.PullRequestPayloadJobSpec{
+							ReleaseControllerConfig: v1.ReleaseControllerConfig{OCP: "4.9", Release: "ci", Specifier: "informing"},
+							Jobs:                    []v1.ReleaseJobSpec{{CIOperatorConfig: v1.CIOperatorMetadata{Org: "test-org", Repo: "test-repo", Branch: "test-branch"}, Test: "test-name", AggregatedCount: 2}},
+						},
+					},
+				},
+			},
+		},
 	}
 
 	for _, tc := range testCases {
@@ -156,7 +174,7 @@ func TestReconcile(t *testing.T) {
 				t.Fatal(err)
 			}
 
-			pruneProwjobsForTests(actualProwjobsList.Items)
+			pruneProwjobsForTests(t, actualProwjobsList.Items)
 			testhelper.CompareWithFixture(t, actualProwjobsList.Items, testhelper.WithPrefix("prowjobs-"))
 
 			var actualPrpqr v1.PullRequestPayloadQualificationRunList
@@ -187,8 +205,28 @@ func prunePRPQRForTests(items []v1.PullRequestPayloadQualificationRun) {
 	}
 }
 
-func pruneProwjobsForTests(items []prowv1.ProwJob) {
-	for i := range items {
+func pruneProwjobsForTests(t *testing.T, items []prowv1.ProwJob) {
+	for i, pj := range items {
+		if strings.HasPrefix(pj.Spec.Job, "aggregator") {
+			unResolvedConfig := items[i].Spec.PodSpec.Containers[0].Env[0].Value
+
+			c := &api.ReleaseBuildConfiguration{}
+			if err := yaml.Unmarshal([]byte(unResolvedConfig), c); err != nil {
+				t.Fatal(err)
+			}
+
+			if _, ok := c.Tests[0].MultiStageTestConfiguration.Environment["JOB_START_TIME"]; ok {
+				c.Tests[0].MultiStageTestConfiguration.Environment["JOB_START_TIME"] = "1970-01-01T01:00:00+01:00"
+			}
+
+			unresolvedConfigRaw, err := yaml.Marshal(c)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			items[i].Spec.PodSpec.Containers[0].Env[0].Value = string(unresolvedConfigRaw)
+		}
+
 		items[i].Status.StartTime = zeroTime
 		items[i].Name = "some-uuid"
 	}

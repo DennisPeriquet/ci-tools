@@ -60,7 +60,7 @@ type githubTrustedChecker struct {
 }
 
 func (c *githubTrustedChecker) trustedUser(author, org, repo string, _ int) (bool, error) {
-	triggerTrustedResponse, err := trigger.TrustedUser(c.githubClient, false, "", author, org, repo)
+	triggerTrustedResponse, err := trigger.TrustedUser(c.githubClient, false, []string{}, "", author, org, repo)
 	if err != nil {
 		return false, fmt.Errorf("error checking %s for trust: %w", author, err)
 	}
@@ -175,8 +175,8 @@ func (s *server) handle(l *logrus.Entry, ic github.IssueCommentEvent) string {
 		logger.WithError(err).Error("could not resolve ci-operator's config")
 		return formatError(fmt.Errorf("could not resolve ci-operator's config for %s/%s/%s: %w", org, repo, pr.Base.Ref, err))
 	}
-	if !promotion.PromotesOfficialImages(ciOpConfig) {
-		logger.Error("the repo does not contribute to the OpenShift official images")
+	if !promotion.PromotesOfficialImages(ciOpConfig, promotion.WithOKD) {
+		logger.Info("the repo does not contribute to the OpenShift official images")
 		return fmt.Sprintf("the repo %s/%s does not contribute to the OpenShift official images", org, repo)
 	}
 

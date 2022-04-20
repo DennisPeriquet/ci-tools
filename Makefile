@@ -156,16 +156,17 @@ integration:
 
 TMPDIR ?= /tmp
 TAGS ?= e2e,e2e_framework
+PACKAGES ?= ./test/e2e/...
 
 # Run e2e tests.
 #
-# Accepts a specific suite to run as an argument.
+# Accepts specific suites to run via `$PACKAGES`.
 #
 # Example:
 #   make e2e
-#   make e2e SUITE=multi-stage
+#   make e2e PACKAGES=test/e2e/pod-scaler
 e2e: $(TMPDIR)/.boskos-credentials
-	BOSKOS_CREDENTIALS_FILE="$(TMPDIR)/.boskos-credentials" PACKAGES="./test/e2e/..." TESTFLAGS="$(TESTFLAGS) -tags $(TAGS) -timeout 70m -parallel 100" hack/test-go.sh
+	BOSKOS_CREDENTIALS_FILE="$(TMPDIR)/.boskos-credentials" PACKAGES="$(PACKAGES)" TESTFLAGS="$(TESTFLAGS) -tags $(TAGS) -timeout 70m -parallel 100" hack/test-go.sh
 .PHONY: e2e
 
 $(TMPDIR)/.boskos-credentials:
@@ -265,7 +266,7 @@ generate: imports
 
 .PHONY: imports
 imports:
-	go run ./vendor/github.com/coreydaley/openshift-goimports/ -m github.com/openshift/ci-tools
+	go run ./vendor/github.com/openshift-eng/openshift-goimports/ -m github.com/openshift/ci-tools
 
 .PHONY: verify-gen
 verify-gen: generate cmd/pod-scaler/frontend/dist/dummy cmd/repo-init/frontend/dist/dummy # we need the dummy file to exist so there's no diff on it
@@ -351,7 +352,7 @@ frontend-format: cmd/pod-scaler/frontend/node_modules cmd/repo-init/frontend/nod
 cmd/repo-init/frontend/dist: cmd/repo-init/frontend/node_modules
 	# This environment variable needs to be present when running the npm build as this is when it will get injected into the production artifact.
 	# Ideally it would not be set here in the Make target, but doing this temporarily until something better is figured out.
-	$(eval export REACT_APP_API_URI=https://repo-init-apiserver.apps.ci.l2s4.p1.openshiftapps.com)
+	$(eval export REACT_APP_API_URI=https://repo-init-apiserver-ci.apps.ci.l2s4.p1.openshiftapps.com/api)
 	@$(MAKE) npm-repo-init  NPM_ARGS="run build"
 	@$(MAKE) cmd/repo-init/frontend/dist/dummy
 
@@ -424,8 +425,12 @@ $(TMPDIR)/.github-ldap-user-group-creator-kubeconfig-dir:
 	oc --context app.ci --namespace ci serviceaccounts create-kubeconfig github-ldap-user-group-creator | sed 's/github-ldap-user-group-creator/app.ci/g' > $(TMPDIR)/.github-ldap-user-group-creator-kubeconfig-dir/sa.github-ldap-user-group-creator.app.ci.config
 
 github-ldap-user-group-creator: $(TMPDIR)/.github-ldap-user-group-creator-kubeconfig-dir
-	@go run  ./cmd/github-ldap-user-group-creator --kubeconfig-dir=$(TMPDIR)/.github-ldap-user-group-creator-kubeconfig-dir --mapping-file=/tmp/mapping.yaml --dry-run=true --log-level=debug
+	go run  ./cmd/github-ldap-user-group-creator --kubeconfig-dir=$(TMPDIR)/.github-ldap-user-group-creator-kubeconfig-dir --groups-file=/tmp/groups.yaml --mapping-file=/tmp/mapping.yaml --config-file=$(release_folder)/core-services/sync-rover-groups/_config.yaml --dry-run=true --log-level=debug
 .PHONY: github-ldap-user-group-creator
+
+sync-rover-groups:
+	go run  ./cmd/sync-rover-groups --manifest-dir=$(release_folder)/clusters --config-file=$(release_folder)/core-services/sync-rover-groups/_config.yaml --mapping-file=/tmp/mapping.yaml --log-level=debug
+.PHONY: sync-rover-groups
 
 $(TMPDIR)/.cluster-display-kubeconfig-dir:
 	rm -rf $(TMPDIR)/.cluster-display-kubeconfig-dir

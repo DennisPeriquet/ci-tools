@@ -289,79 +289,36 @@ const (
 	clusterProfileVolume = "cluster-profile"
 )
 
-func generateClusterProfileVolume(profile cioperatorapi.ClusterProfile, clusterType string) corev1.Volume {
-	// AWS-2 and CPaaS and GCP2 PacketAssisted and PacketSNO need a different secret that should be provided to jobs
-	// AWS-2 and CPaaS and GCP2 need a different secret that should be provided to jobs
-	if profile == cioperatorapi.ClusterProfileAWSCPaaS ||
-		profile == cioperatorapi.ClusterProfileAWS2 ||
-		profile == cioperatorapi.ClusterProfileGCP2 ||
-		profile == cioperatorapi.ClusterProfilePacketAssisted ||
-		profile == cioperatorapi.ClusterProfilePacketSNO ||
-		profile == cioperatorapi.ClusterProfileAzure2 {
-		clusterType = string(profile)
-	}
-
-	ret := corev1.Volume{
-		Name: clusterProfileVolume,
-	}
-	switch profile {
-	case
-		cioperatorapi.ClusterProfileAWS,
-		cioperatorapi.ClusterProfileAWSArm64,
-		cioperatorapi.ClusterProfileAWSC2S,
-		cioperatorapi.ClusterProfileAWSChina,
-		cioperatorapi.ClusterProfileAWSGovCloud,
-		cioperatorapi.ClusterProfileAlibabaCloud,
-		cioperatorapi.ClusterProfileAzure4,
-		cioperatorapi.ClusterProfileAzure2,
-		cioperatorapi.ClusterProfileAzureArc,
-		cioperatorapi.ClusterProfileAzureStack,
-		cioperatorapi.ClusterProfileAzureMag,
-		cioperatorapi.ClusterProfileIBMCloud,
-		cioperatorapi.ClusterProfileLibvirtS390x,
-		cioperatorapi.ClusterProfileLibvirtPpc64le,
-		cioperatorapi.ClusterProfileOpenStack,
-		cioperatorapi.ClusterProfileOpenStackKuryr,
-		cioperatorapi.ClusterProfileOpenStackNFV,
-		cioperatorapi.ClusterProfileOpenStackMechaCentral,
-		cioperatorapi.ClusterProfileOpenStackMechaAz0,
-		cioperatorapi.ClusterProfileOpenStackOsuosl,
-		cioperatorapi.ClusterProfileOpenStackVexxhost,
-		cioperatorapi.ClusterProfileOpenStackPpc64le,
-		cioperatorapi.ClusterProfileVSphere,
-		cioperatorapi.ClusterProfileVSphereDiscon,
-		cioperatorapi.ClusterProfileVSphereClusterbot,
-		cioperatorapi.ClusterProfileVSphereMultizone,
-		cioperatorapi.ClusterProfileKubevirt,
-		cioperatorapi.ClusterProfileAWSCPaaS,
-		cioperatorapi.ClusterProfileOSDEphemeral,
-		cioperatorapi.ClusterProfileAWS2,
-		cioperatorapi.ClusterProfileHyperShift,
-		cioperatorapi.ClusterProfilePacket,
-		cioperatorapi.ClusterProfilePacketAssisted,
-		cioperatorapi.ClusterProfilePacketSNO:
-		ret.VolumeSource = corev1.VolumeSource{
-			Secret: &corev1.SecretVolumeSource{
-				SecretName: fmt.Sprintf("cluster-secrets-%s", clusterType),
+func generateClusterProfileVolume(profile cioperatorapi.ClusterProfile) corev1.Volume {
+	if secret, cm := profile.Secret(), profile.ConfigMap(); cm == "" {
+		return corev1.Volume{
+			Name: clusterProfileVolume,
+			VolumeSource: corev1.VolumeSource{
+				Secret: &corev1.SecretVolumeSource{SecretName: secret},
 			},
 		}
-	default:
-		ret.VolumeSource.Projected = &corev1.ProjectedVolumeSource{
-			Sources: []corev1.VolumeProjection{
-				{
-					Secret: &corev1.SecretProjection{
-						LocalObjectReference: corev1.LocalObjectReference{Name: fmt.Sprintf("cluster-secrets-%s", clusterType)},
-					},
-				},
-				{
-					ConfigMap: &corev1.ConfigMapProjection{
-						LocalObjectReference: corev1.LocalObjectReference{Name: fmt.Sprintf("cluster-profile-%s", profile)},
-					},
+	} else {
+		return corev1.Volume{
+			Name: clusterProfileVolume,
+			VolumeSource: corev1.VolumeSource{
+				Projected: &corev1.ProjectedVolumeSource{
+					Sources: []corev1.VolumeProjection{{
+						Secret: &corev1.SecretProjection{
+							LocalObjectReference: corev1.LocalObjectReference{
+								Name: secret,
+							},
+						},
+					}, {
+						ConfigMap: &corev1.ConfigMapProjection{
+							LocalObjectReference: corev1.LocalObjectReference{
+								Name: cm,
+							},
+						},
+					}},
 				},
 			},
 		}
 	}
-	return ret
 }
 
 func generateConfigMapVolume(name string, templates []string) corev1.Volume {
@@ -399,7 +356,7 @@ func generateConfigMapVolume(name string, templates []string) corev1.Volume {
 func ClusterProfile(profile cioperatorapi.ClusterProfile, target string) PodSpecMutator {
 	return func(spec *corev1.PodSpec) error {
 		container := &spec.Containers[0]
-		wantVolume := generateClusterProfileVolume(profile, profile.ClusterType())
+		wantVolume := generateClusterProfileVolume(profile)
 		if err := addVolume(spec, wantVolume); err != nil {
 			return err
 		}

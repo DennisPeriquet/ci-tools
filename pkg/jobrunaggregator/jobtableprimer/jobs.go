@@ -15,6 +15,12 @@ const (
 	vsphere   = "vsphere"
 	ovirt     = "ovirt"
 	openstack = "openstack"
+	libvirt   = "libvirt"
+
+	amd64   = "amd64"
+	arm64   = "arm64"
+	ppc64le = "ppc64le"
+	s390x   = "s390x"
 
 	sdn = "sdn"
 	ovn = "ovn"

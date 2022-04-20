@@ -57,6 +57,22 @@ type Loggers struct {
 	Job, Debug logrus.FieldLogger
 }
 
+// Number of openshift versions
+var numVersion = 50
+
+// Global map that contains relevance of known branches
+var relevancy = map[string]int{
+	"master": numVersion + 1,
+	"main":   numVersion + 1,
+}
+
+func init() {
+	for i := 1; i < numVersion; i++ {
+		relevancy[fmt.Sprintf("release-4.%d", i)] = i
+		relevancy[fmt.Sprintf("openshift-4.%d", i)] = i
+	}
+}
+
 // NewProwJobClient creates a ProwJob client with a dry run capability
 func NewProwJobClient(clusterConfig *rest.Config, dry bool) (ctrlruntimeclient.Client, error) {
 	if dry {
@@ -366,6 +382,7 @@ func inlineCiOpConfig(container *v1.Container, ciopConfigs config.DataByFilename
 // JobConfigurer holds all the information that is needed for the configuration of the jobs.
 type JobConfigurer struct {
 	ciopConfigs           config.DataByFilename
+	prowConfig            *prowconfig.Config
 	registryResolver      registry.Resolver
 	clusterProfileCMNames map[string]string
 	templateCMNames       map[string]string
@@ -375,9 +392,10 @@ type JobConfigurer struct {
 }
 
 // NewJobConfigurer filters the jobs and returns a new JobConfigurer.
-func NewJobConfigurer(ciopConfigs config.DataByFilename, resolver registry.Resolver, prNumber int, loggers Loggers, templates, profiles map[string]string, refs *pjapi.Refs) *JobConfigurer {
+func NewJobConfigurer(ciopConfigs config.DataByFilename, prowConfig *prowconfig.Config, resolver registry.Resolver, prNumber int, loggers Loggers, templates, profiles map[string]string, refs *pjapi.Refs) *JobConfigurer {
 	return &JobConfigurer{
 		ciopConfigs:           ciopConfigs,
+		prowConfig:            prowConfig,
 		registryResolver:      resolver,
 		clusterProfileCMNames: profiles,
 		templateCMNames:       templates,
@@ -411,6 +429,7 @@ func (jc *JobConfigurer) ConfigurePeriodicRehearsals(periodics config.Periodics)
 			metadata.Repo = job.ExtraRefs[0].Repo
 			metadata.Branch = job.ExtraRefs[0].BaseRef
 		}
+		jc.configureDecorationConfig(&job.JobBase, metadata)
 		testname := metadata.TestNameFromJobName(job.Name, jobconfig.PeriodicPrefix)
 		imageStreamTags, err := jc.configureJobSpec(job.Spec, metadata, testname, jc.loggers.Debug.WithField("name", job.Name))
 		if err != nil {
@@ -433,17 +452,13 @@ func (jc *JobConfigurer) ConfigurePresubmitRehearsals(presubmits config.Presubmi
 
 	presubmitsFiltered := filterPresubmits(presubmits, jc.loggers.Job)
 	for orgrepo, jobs := range presubmitsFiltered {
+		splitOrgRepo := strings.Split(orgrepo, "/")
+		if len(splitOrgRepo) != 2 {
+			jc.loggers.Job.WithError(fmt.Errorf("failed to identify org and repo from string %s", orgrepo)).Warn("Failed to inline ci-operator-config into rehearsal presubmit job")
+		}
+
 		for _, job := range jobs {
 			jobLogger := jc.loggers.Job.WithFields(logrus.Fields{"target-repo": orgrepo, "target-job": job.Name})
-			rehearsal, err := makeRehearsalPresubmit(&job, orgrepo, jc.prNumber, jc.refs)
-			if err != nil {
-				return nil, nil, fmt.Errorf("failed to make rehearsal presubmit: %w", err)
-			}
-
-			splitOrgRepo := strings.Split(orgrepo, "/")
-			if len(splitOrgRepo) != 2 {
-				jobLogger.WithError(fmt.Errorf("failed to identify org and repo from string %s", orgrepo)).Warn("Failed to inline ci-operator-config into rehearsal presubmit job")
-			}
 			branch := BranchFromRegexes(job.Branches)
 			if branch == "" {
 				jobLogger.Warn("failed to extract a simple branch name for a presubmit")
@@ -454,6 +469,12 @@ func (jc *JobConfigurer) ConfigurePresubmitRehearsals(presubmits config.Presubmi
 				Repo:    splitOrgRepo[1],
 				Branch:  branch,
 				Variant: VariantFromLabels(job.Labels),
+			}
+			jc.configureDecorationConfig(&job.JobBase, metadata)
+
+			rehearsal, err := makeRehearsalPresubmit(&job, orgrepo, jc.prNumber, jc.refs)
+			if err != nil {
+				return nil, nil, fmt.Errorf("failed to make rehearsal presubmit: %w", err)
 			}
 			testname := metadata.TestNameFromJobName(job.Name, jobconfig.PresubmitPrefix)
 
@@ -469,6 +490,17 @@ func (jc *JobConfigurer) ConfigurePresubmitRehearsals(presubmits config.Presubmi
 		}
 	}
 	return allImageStreamTags, rehearsals, nil
+}
+
+// configureDecorationConfig sets the DecorationConfig.GCSConfiguration.JobURLPrefix to get the correct Details link on rehearsal gh statuses
+func (jc *JobConfigurer) configureDecorationConfig(job *prowconfig.JobBase, metadata api.Metadata) {
+	if job.DecorationConfig == nil {
+		job.DecorationConfig = &pjapi.DecorationConfig{}
+	}
+	if job.DecorationConfig.GCSConfiguration == nil {
+		job.DecorationConfig.GCSConfiguration = &pjapi.GCSConfiguration{}
+	}
+	job.DecorationConfig.GCSConfiguration.JobURLPrefix = determineJobURLPrefix(jc.prowConfig.Plank, metadata.Org, metadata.Repo)
 }
 
 func (jc *JobConfigurer) configureJobSpec(spec *v1.PodSpec, metadata api.Metadata, testName string, logger *logrus.Entry) (apihelper.ImageStreamTagMap, error) {
@@ -661,7 +693,7 @@ func SelectJobsForChangedRegistry(regSteps []registry.Node, allPresubmits presub
 	// The order is INTENTIONALLY reversed to cheaply increase the chance of hitting
 	// a useful rehearsal (prefer higher OCP versions)
 	sort.Slice(sortedConfigs, func(i, j int) bool {
-		return sortedConfigs[i].Info.Filename > sortedConfigs[j].Info.Filename
+		return moreRelevant(sortedConfigs[i], sortedConfigs[j])
 	})
 
 	stepWorklist := getAffectedNodes(regSteps)
@@ -700,6 +732,11 @@ func SelectJobsForChangedRegistry(regSteps []registry.Node, allPresubmits presub
 		}
 	}
 	return selectedPresubmits, selectedPeriodics
+}
+
+// Compare two branches by their relevancy
+func moreRelevant(one, two *config.DataWithInfo) bool {
+	return relevancy[one.Info.Metadata.Branch] > relevancy[two.Info.Metadata.Branch]
 }
 
 func getClusterTypes(jobs map[string][]prowconfig.Presubmit) []string {
@@ -1014,4 +1051,16 @@ func (e *Executor) submitPresubmit(job *prowconfig.Presubmit) (*pjapi.ProwJob, e
 	prowJob.Namespace = e.namespace
 	e.loggers.Job.WithFields(pjutil.ProwJobFields(&prowJob)).Info("Submitting a new prowjob.")
 	return &prowJob, e.pjclient.Create(context.Background(), &prowJob)
+}
+
+func determineJobURLPrefix(plank prowconfig.Plank, org string, repo string) string {
+	jobURLPrefix := plank.JobURLPrefixConfig["*"]
+	if plank.JobURLPrefixConfig[org] != "" {
+		jobURLPrefix = plank.JobURLPrefixConfig[org]
+	}
+	if plank.JobURLPrefixConfig[fmt.Sprintf("%s/%s", org, repo)] != "" {
+		jobURLPrefix = plank.JobURLPrefixConfig[fmt.Sprintf("%s/%s", org, repo)]
+	}
+
+	return jobURLPrefix
 }

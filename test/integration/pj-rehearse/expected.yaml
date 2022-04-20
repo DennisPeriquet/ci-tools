@@ -175,6 +175,7 @@
         bucket: origin-ci-test
         default_org: openshift
         default_repo: origin
+        job_url_prefix: https://super-duper.appspot.com/build/
         path_strategy: single
       gcs_credentials_secret: gce-sa-credentials-gcs-publisher
       grace_period: 15s
@@ -283,6 +284,7 @@
         bucket: origin-ci-test
         default_org: openshift
         default_repo: origin
+        job_url_prefix: https://super-duper.appspot.com/build/
         path_strategy: single
       gcs_credentials_secret: gce-sa-credentials-gcs-publisher
       grace_period: 15s
@@ -362,6 +364,7 @@
         bucket: origin-ci-test
         default_org: openshift
         default_repo: origin
+        job_url_prefix: https://super-duper.appspot.com/build/
         path_strategy: single
       gcs_credentials_secret: gce-sa-credentials-gcs-publisher
       grace_period: 15s
@@ -444,6 +447,7 @@
         bucket: origin-ci-test
         default_org: openshift
         default_repo: origin
+        job_url_prefix: https://super-duper.appspot.com/build/
         path_strategy: single
       gcs_credentials_secret: gce-sa-credentials-gcs-publisher
       grace_period: 15s
@@ -526,6 +530,7 @@
         bucket: origin-ci-test
         default_org: openshift
         default_repo: origin
+        job_url_prefix: https://openshift-gce-devel.appspot.com/build/
         path_strategy: single
       gcs_credentials_secret: gce-sa-credentials-gcs-publisher
       grace_period: 15s
@@ -630,6 +635,7 @@
         bucket: origin-ci-test
         default_org: openshift
         default_repo: origin
+        job_url_prefix: https://openshift-gce-devel.appspot.com/build/
         path_strategy: single
       gcs_credentials_secret: gce-sa-credentials-gcs-publisher
       grace_period: 15s
@@ -732,6 +738,7 @@
         bucket: origin-ci-test
         default_org: openshift
         default_repo: origin
+        job_url_prefix: https://super-duper.appspot.com/build/
         path_strategy: single
       gcs_credentials_secret: gce-sa-credentials-gcs-publisher
       grace_period: 15s
@@ -822,6 +829,7 @@
         bucket: origin-ci-test
         default_org: openshift
         default_repo: origin
+        job_url_prefix: https://super-duper.appspot.com/build/
         path_strategy: single
       gcs_credentials_secret: gce-sa-credentials-gcs-publisher
       grace_period: 15s
@@ -924,6 +932,7 @@
         bucket: origin-ci-test
         default_org: openshift
         default_repo: origin
+        job_url_prefix: https://super-duper.appspot.com/build/
         path_strategy: single
       gcs_credentials_secret: gce-sa-credentials-gcs-publisher
       grace_period: 15s
@@ -1032,6 +1041,7 @@
         bucket: origin-ci-test
         default_org: openshift
         default_repo: origin
+        job_url_prefix: https://super-duper.appspot.com/build/
         path_strategy: single
       gcs_credentials_secret: gce-sa-credentials-gcs-publisher
       grace_period: 15s
@@ -1117,6 +1127,7 @@
         bucket: origin-ci-test
         default_org: openshift
         default_repo: origin
+        job_url_prefix: https://super-duper.appspot.com/build/
         path_strategy: single
       gcs_credentials_secret: gce-sa-credentials-gcs-publisher
       grace_period: 15s
@@ -1225,6 +1236,7 @@
         bucket: origin-ci-test
         default_org: openshift
         default_repo: origin
+        job_url_prefix: https://openshift-gce-devel.appspot.com/build/
         path_strategy: single
       gcs_credentials_secret: gce-sa-credentials-gcs-publisher
       grace_period: 15s
@@ -1334,6 +1346,7 @@
         bucket: origin-ci-test
         default_org: openshift
         default_repo: origin
+        job_url_prefix: https://openshift-gce-devel.appspot.com/build/
         path_strategy: single
       gcs_credentials_secret: gce-sa-credentials-gcs-publisher
       grace_period: 15s
@@ -1437,6 +1450,7 @@
         bucket: origin-ci-test
         default_org: openshift
         default_repo: origin
+        job_url_prefix: https://openshift-gce-devel.appspot.com/build/
         path_strategy: single
       gcs_credentials_secret: gce-sa-credentials-gcs-publisher
       grace_period: 15s
@@ -1540,6 +1554,7 @@
         bucket: origin-ci-test
         default_org: openshift
         default_repo: origin
+        job_url_prefix: https://openshift-gce-devel.appspot.com/build/
         path_strategy: single
       gcs_credentials_secret: gce-sa-credentials-gcs-publisher
       grace_period: 15s

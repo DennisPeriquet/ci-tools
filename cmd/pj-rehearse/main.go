@@ -305,7 +305,7 @@ func rehearseMain() error {
 	periodicsToRehearse.AddAll(periodicsForRegistry, config.ChangedRegistryContent)
 
 	resolver := registry.NewResolver(refs, chains, workflows, observers)
-	jobConfigurer := rehearse.NewJobConfigurer(prConfig.CiOperator, resolver, prNumber, loggers, rehearsalTemplates.Names, rehearsalClusterProfiles.Names, jobSpec.Refs)
+	jobConfigurer := rehearse.NewJobConfigurer(prConfig.CiOperator, prConfig.Prow, resolver, prNumber, loggers, rehearsalTemplates.Names, rehearsalClusterProfiles.Names, jobSpec.Refs)
 	imagestreamtags, presubmitsToRehearse, err := jobConfigurer.ConfigurePresubmitRehearsals(toRehearse)
 	if err != nil {
 		return err

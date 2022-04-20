@@ -151,11 +151,16 @@ type weeklyAverageFromTenDays struct {
 
 	queryTestRunsOnce        sync.Once
 	queryTestRunsErr         error
-	aggregatedTestRunsByName map[string]jobrunaggregatorapi.AggregatedTestRunRow
+	aggregatedTestRunsByName map[TestKey]jobrunaggregatorapi.AggregatedTestRunRow
 
 	queryDisruptionOnce sync.Once
 	queryDisruptionErr  error
 	disruptionByBackend map[string]backendDisruptionStats
+}
+
+type TestKey struct {
+	TestCaseName          string
+	CombinedTestSuiteName string
 }
 
 func newWeeklyAverageFromTenDaysAgo(jobName string, startDay time.Time, minimumNumberOfAttempts int, bigQueryClient jobrunaggregatorlib.CIDataClient) baseline {
@@ -173,17 +178,25 @@ func newWeeklyAverageFromTenDaysAgo(jobName string, startDay time.Time, minimumN
 	}
 }
 
-func (a *weeklyAverageFromTenDays) getAggregatedTestRuns(ctx context.Context) (map[string]jobrunaggregatorapi.AggregatedTestRunRow, error) {
+func (a *weeklyAverageFromTenDays) getAggregatedTestRuns(ctx context.Context) (map[TestKey]jobrunaggregatorapi.AggregatedTestRunRow, error) {
 	a.queryTestRunsOnce.Do(func() {
 		rows, err := a.bigQueryClient.ListAggregatedTestRunsForJob(ctx, "ByOneWeek", a.jobName, a.startDay)
-		a.aggregatedTestRunsByName = map[string]jobrunaggregatorapi.AggregatedTestRunRow{}
+		a.aggregatedTestRunsByName = map[TestKey]jobrunaggregatorapi.AggregatedTestRunRow{}
 		if err != nil {
 			a.queryTestRunsErr = err
 			return
 		}
 		for i := range rows {
 			row := rows[i]
-			a.aggregatedTestRunsByName[row.TestName] = row
+			key := TestKey{
+				TestCaseName: row.TestName,
+			}
+			if row.TestSuiteName.Valid {
+				key.CombinedTestSuiteName = row.TestSuiteName.StringVal
+			} else {
+				key.CombinedTestSuiteName = ""
+			}
+			a.aggregatedTestRunsByName[key] = row
 		}
 	})
 
@@ -406,7 +419,7 @@ func (a *weeklyAverageFromTenDays) CheckPercentileRankDisruption(ctx context.Con
 }
 
 func (a *weeklyAverageFromTenDays) CheckFailed(ctx context.Context, jobName string, suiteNames []string, testCaseDetails *TestCaseDetails) (testCaseStatus, string, error) {
-	if reason := testShouldAlwaysPass(jobName, testCaseDetails.Name); len(reason) > 0 {
+	if reason := testShouldAlwaysPass(jobName, testCaseDetails.Name, testCaseDetails.TestSuiteName); len(reason) > 0 {
 		reason := fmt.Sprintf("always passing %q: %v\n", testCaseDetails.Name, reason)
 		return testCasePassed, reason, nil
 	}
@@ -444,11 +457,15 @@ func (a *weeklyAverageFromTenDays) CheckFailed(ctx context.Context, jobName stri
 	aggregatedTestRunsByName, err := a.getAggregatedTestRuns(ctx)
 	missingAllHistoricalData := false
 	if err != nil {
-		fmt.Printf("error getting past reliability data, assume 99%% pass: %v", err)
+		fmt.Printf("error getting past reliability data, assume 99%% pass: %v\n", err)
 		missingAllHistoricalData = true
 	}
 
-	averageTestResult, ok := aggregatedTestRunsByName[testCaseDetails.Name]
+	testKey := TestKey{
+		TestCaseName:          testCaseDetails.Name,
+		CombinedTestSuiteName: testCaseDetails.TestSuiteName,
+	}
+	averageTestResult, ok := aggregatedTestRunsByName[testKey]
 	// the linter requires not setting a default value. This seems strictly worse and more error-prone to me, but
 	// I am a slave to the bot.
 	var workingPercentage int
@@ -481,43 +498,67 @@ func (a *weeklyAverageFromTenDays) CheckFailed(ctx context.Context, jobName stri
 	), nil
 }
 
-var testsRequiringHistoryRewrite = map[testCoordinates]string{
-	{
-		jobName:  "periodic-ci-openshift-release-master-nightly-4.10-e2e-aws-upgrade",
-		testName: "[sig-api-machinery] OpenShift APIs remain available with reused connections",
-	}: "history correction on improperly loose disruption criteria, expires 2022-01-15",
-	{
-		jobName:  "periodic-ci-openshift-release-master-nightly-4.10-e2e-aws-upgrade",
-		testName: "[sig-api-machinery] Kubernetes APIs remain available with reused connections",
-	}: "history correction on improperly loose disruption criteria, expires 2022-01-15",
-}
+var testsRequiringHistoryRewrite = make(map[testCoordinates]string)
 
 type testCoordinates struct {
-	jobName  string
-	testName string
+	jobName       string
+	testName      string
+	testSuiteName string
 }
 
-func testShouldAlwaysPass(jobName, testName string) string {
+func init() {
+	/* This is an example for creating testCoordinates for the same test from multiple jobs
+	for _, jobName := range []string{
+		"periodic-ci-openshift-release-master-ci-4.10-e2e-azure-ovn-upgrade",
+		"periodic-ci-openshift-release-master-ci-4.10-upgrade-from-stable-4.9-e2e-azure-upgrade",
+	} {
+		testsRequiringHistoryRewrite[testCoordinates{
+			jobName:       jobName,
+			testName:      "[sig-network-edge] Application behind service load balancer with PDB remains available using new connections",
+			testSuiteName: "Cluster upgrade",
+		}] = "history correction on kube update, expires 2022-01-24 - https://bugzilla.redhat.com/show_bug.cgi?id=2040715"
+	}*/
+
+	testsRequiringHistoryRewrite[testCoordinates{
+		jobName:       "periodic-ci-openshift-release-master-ci-4.10-upgrade-from-stable-4.9-e2e-aws-ovn-upgrade",
+		testName:      "[sig-network] pods should successfully create sandboxes by other",
+		testSuiteName: "openshift-tests-upgrade",
+	}] = "Test has been failing for a longtime but went undetected"
+}
+
+// testShouldAlwaysPass returns a reason if a test should be skipped and considered always passing, or empty
+// string if we should proceed with normal test analysis.
+func testShouldAlwaysPass(jobName, testName, testSuiteName string) string {
 	coordinates := testCoordinates{
-		jobName:  jobName,
-		testName: testName,
+		jobName:       jobName,
+		testName:      testName,
+		testSuiteName: testSuiteName,
 	}
+
 	if reason := testsRequiringHistoryRewrite[coordinates]; len(reason) > 0 {
 		return reason
 	}
 
-	if strings.HasPrefix(testName, "Run multi-stage test ") {
-		switch {
-		// used to aggregate overall upgrade result for a single job.  Since we aggregated all the junits, we don't care about this
-		// sub-aggregation. The analysis job runs can all fail on different tests, but the aggregated job will succeed.
-		case strings.HasSuffix(testName, "-openshift-e2e-test container test"):
-			return "used to aggregate overall upgrade result for a single job"
-		}
+	if testSuiteName == "step graph" {
+		// examples: "step graph.Run multi-stage test post phase"
+		return "step graph tests are added by ci and are not useful for aggregation"
 	}
+
 	if strings.Contains(testName, `Cluster should remain functional during upgrade`) {
 		// this test is a side-effect of other tests.  For the purpose of aggregation, we can have each individual job run
 		// fail this test, but the aggregated output can be successful.
 		return "this test is a side-effect of other tests"
+	}
+
+	if strings.HasSuffix(testName, "-gather-azure-cli container test") {
+		// this is only for gathering artifacts.
+		return "used only to collect artifacts"
+	}
+
+	if testName == "initialize" {
+		// initialize test appears only when job run fails so job run will fail anyway
+		//
+		return "ignore initialize"
 	}
 
 	return ""
