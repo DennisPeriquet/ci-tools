@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
+	"github.com/sirupsen/logrus"
 
 	"github.com/openshift/ci-tools/pkg/api"
 )
@@ -17,10 +18,15 @@ func TestClusterProfiles(t *testing.T) {
 		t.Fatalf("could not make request: %v", err)
 	}
 
-	writer := &fakeWriter{}
-	clusterProfileHandler()(writer, r)
+	s := server{logger: logrus.WithField("component", "repo-init-api")}
 
-	expected, _ := json.Marshal(getClusterProfiles())
+	writer := &fakeWriter{}
+	s.clusterProfileHandler()(writer, r)
+
+	expected, err := json.Marshal(clusterProfileList)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if diff := cmp.Diff(writer.body, expected); diff != "" {
 		t.Fatalf("unexpected response %v", diff)
 	}
@@ -156,7 +162,8 @@ func TestConfigValidation(t *testing.T) {
 
 			writer := &fakeWriter{}
 
-			validateConfig(writer, r)
+			s := server{logger: logrus.WithField("component", "repo-init-api")}
+			s.validateConfig(writer, r)
 
 			actual := &validationResponse{}
 			_ = json.Unmarshal(writer.body, actual)

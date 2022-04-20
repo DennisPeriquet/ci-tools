@@ -20,6 +20,7 @@ import (
 
 	"github.com/openshift/ci-tools/pkg/api"
 	prpqv1 "github.com/openshift/ci-tools/pkg/api/pullrequestpayloadqualification/v1"
+	"github.com/openshift/ci-tools/pkg/promotion"
 	"github.com/openshift/ci-tools/pkg/release/config"
 )
 
@@ -59,7 +60,7 @@ type githubTrustedChecker struct {
 }
 
 func (c *githubTrustedChecker) trustedUser(author, org, repo string, _ int) (bool, error) {
-	triggerTrustedResponse, err := trigger.TrustedUser(c.githubClient, false, "", author, org, repo)
+	triggerTrustedResponse, err := trigger.TrustedUser(c.githubClient, false, []string{}, "", author, org, repo)
 	if err != nil {
 		return false, fmt.Errorf("error checking %s for trust: %w", author, err)
 	}
@@ -67,13 +68,14 @@ func (c *githubTrustedChecker) trustedUser(author, org, repo string, _ int) (boo
 }
 
 type server struct {
-	ghc            githubClient
-	ctx            context.Context
-	kubeClient     ctrlruntimeclient.Client
-	namespace      string
-	jobResolver    jobResolver
-	testResolver   testResolver
-	trustedChecker trustedChecker
+	ghc                githubClient
+	ctx                context.Context
+	kubeClient         ctrlruntimeclient.Client
+	namespace          string
+	jobResolver        jobResolver
+	testResolver       testResolver
+	trustedChecker     trustedChecker
+	ciOpConfigResolver ciOpConfigResolver
 }
 
 type jobSetSpecification struct {
@@ -156,7 +158,7 @@ func (s *server) handle(l *logrus.Entry, ic github.IssueCommentEvent) string {
 		return formatError(fmt.Errorf("could not check if the user %s is trusted for pull request %s/%s#%d: %w", ic.Comment.User.Login, org, repo, prNumber, err))
 	}
 	if !trusted {
-		logger.WithError(err).WithField("user", ic.Comment.User.Login).Error("the user is not trusted")
+		logger.WithField("user", ic.Comment.User.Login).Error("the user is not trusted")
 		return fmt.Sprintf("user %s is not trusted for pull request %s/%s#%d", ic.Comment.User.Login, org, repo, prNumber)
 	}
 
@@ -164,8 +166,18 @@ func (s *server) handle(l *logrus.Entry, ic github.IssueCommentEvent) string {
 	pr, err := s.ghc.GetPullRequest(org, repo, prNumber)
 	logger.WithField("duration", time.Since(startGetPullRequest)).Debug("GetPullRequest completed")
 	if err != nil {
-		logger.Debug("could not get pull request")
+		logger.WithError(err).Error("could not get pull request")
 		return formatError(fmt.Errorf("could not get pull request https://github.com/%s/%s/pull/%d: %w", org, repo, prNumber, err))
+	}
+
+	ciOpConfig, err := s.ciOpConfigResolver.Config(&api.Metadata{Org: org, Repo: repo, Branch: pr.Base.Ref})
+	if err != nil {
+		logger.WithError(err).Error("could not resolve ci-operator's config")
+		return formatError(fmt.Errorf("could not resolve ci-operator's config for %s/%s/%s: %w", org, repo, pr.Base.Ref, err))
+	}
+	if !promotion.PromotesOfficialImages(ciOpConfig, promotion.WithOKD) {
+		logger.Info("the repo does not contribute to the OpenShift official images")
+		return fmt.Sprintf("the repo %s/%s does not contribute to the OpenShift official images", org, repo)
 	}
 
 	var messages []string
@@ -353,4 +365,8 @@ func formatError(err error) string {
 
 Please contact an administrator to resolve this issue.`,
 		digest, err)
+}
+
+type ciOpConfigResolver interface {
+	Config(*api.Metadata) (*api.ReleaseBuildConfiguration, error)
 }

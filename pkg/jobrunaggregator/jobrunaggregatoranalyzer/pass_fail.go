@@ -25,16 +25,16 @@ const (
 )
 
 type baseline interface {
-	CheckFailed(ctx context.Context, suiteNames []string, testCaseDetails *TestCaseDetails) (status testCaseStatus, message string, err error)
+	CheckFailed(ctx context.Context, jobName string, suiteNames []string, testCaseDetails *TestCaseDetails) (status testCaseStatus, message string, err error)
 	CheckDisruptionMeanWithinTwoStandardDeviations(ctx context.Context, jobRunIDToAvailabilityResultForBackend map[string]jobrunaggregatorlib.AvailabilityResult, backend string) (failedJobRunsIDs []string, successfulJobRunIDs []string, status testCaseStatus, message string, err error)
 	CheckDisruptionMeanWithinOneStandardDeviation(ctx context.Context, jobRunIDToAvailabilityResultForBackend map[string]jobrunaggregatorlib.AvailabilityResult, backend string) (failedJobRunsIDs []string, successfulJobRunIDs []string, status testCaseStatus, message string, err error)
 	CheckPercentileDisruption(ctx context.Context, jobRunIDToAvailabilityResultForBackend map[string]jobrunaggregatorlib.AvailabilityResult, backend string, percentile int) (failureJobRunIDs []string, successJobRunIDs []string, status testCaseStatus, message string, err error)
 	CheckPercentileRankDisruption(ctx context.Context, jobRunIDToAvailabilityResultForBackend map[string]jobrunaggregatorlib.AvailabilityResult, backend string, maxDisruptionSeconds int) (failureJobRunIDs []string, successJobRunIDs []string, status testCaseStatus, message string, err error)
 }
 
-func assignPassFail(ctx context.Context, combined *junit.TestSuites, baselinePassFail baseline) error {
+func assignPassFail(ctx context.Context, jobName string, combined *junit.TestSuites, baselinePassFail baseline) error {
 	for _, currTestSuite := range combined.Suites {
-		if err := assignPassFailForTestSuite(ctx, []string{}, currTestSuite, baselinePassFail); err != nil {
+		if err := assignPassFailForTestSuite(ctx, jobName, []string{}, currTestSuite, baselinePassFail); err != nil {
 			return err
 		}
 
@@ -43,12 +43,12 @@ func assignPassFail(ctx context.Context, combined *junit.TestSuites, baselinePas
 	return nil
 }
 
-func assignPassFailForTestSuite(ctx context.Context, parentTestSuites []string, combined *junit.TestSuite, baselinePassFail baseline) error {
+func assignPassFailForTestSuite(ctx context.Context, jobName string, parentTestSuites []string, combined *junit.TestSuite, baselinePassFail baseline) error {
 	failureCount := uint(0)
 
 	currSuiteNames := append(parentTestSuites, combined.Name)
 	for _, currTestSuite := range combined.Children {
-		if err := assignPassFailForTestSuite(ctx, currSuiteNames, currTestSuite, baselinePassFail); err != nil {
+		if err := assignPassFailForTestSuite(ctx, jobName, currSuiteNames, currTestSuite, baselinePassFail); err != nil {
 			return err
 		}
 		failureCount += currTestSuite.NumFailed
@@ -70,7 +70,7 @@ func assignPassFailForTestSuite(ctx context.Context, parentTestSuites []string, 
 		//if jobrunaggregatorlib.IsDisruptionTest(currTestCase.Name) {
 		//}
 
-		status, message, err = baselinePassFail.CheckFailed(ctx, currSuiteNames, currDetails)
+		status, message, err = baselinePassFail.CheckFailed(ctx, jobName, currSuiteNames, currDetails)
 		if err != nil {
 			return err
 		}
@@ -151,11 +151,16 @@ type weeklyAverageFromTenDays struct {
 
 	queryTestRunsOnce        sync.Once
 	queryTestRunsErr         error
-	aggregatedTestRunsByName map[string]jobrunaggregatorapi.AggregatedTestRunRow
+	aggregatedTestRunsByName map[TestKey]jobrunaggregatorapi.AggregatedTestRunRow
 
 	queryDisruptionOnce sync.Once
 	queryDisruptionErr  error
 	disruptionByBackend map[string]backendDisruptionStats
+}
+
+type TestKey struct {
+	TestCaseName          string
+	CombinedTestSuiteName string
 }
 
 func newWeeklyAverageFromTenDaysAgo(jobName string, startDay time.Time, minimumNumberOfAttempts int, bigQueryClient jobrunaggregatorlib.CIDataClient) baseline {
@@ -173,17 +178,25 @@ func newWeeklyAverageFromTenDaysAgo(jobName string, startDay time.Time, minimumN
 	}
 }
 
-func (a *weeklyAverageFromTenDays) getAggregatedTestRuns(ctx context.Context) (map[string]jobrunaggregatorapi.AggregatedTestRunRow, error) {
+func (a *weeklyAverageFromTenDays) getAggregatedTestRuns(ctx context.Context) (map[TestKey]jobrunaggregatorapi.AggregatedTestRunRow, error) {
 	a.queryTestRunsOnce.Do(func() {
 		rows, err := a.bigQueryClient.ListAggregatedTestRunsForJob(ctx, "ByOneWeek", a.jobName, a.startDay)
-		a.aggregatedTestRunsByName = map[string]jobrunaggregatorapi.AggregatedTestRunRow{}
+		a.aggregatedTestRunsByName = map[TestKey]jobrunaggregatorapi.AggregatedTestRunRow{}
 		if err != nil {
 			a.queryTestRunsErr = err
 			return
 		}
 		for i := range rows {
 			row := rows[i]
-			a.aggregatedTestRunsByName[row.TestName] = row
+			key := TestKey{
+				TestCaseName: row.TestName,
+			}
+			if row.TestSuiteName.Valid {
+				key.CombinedTestSuiteName = row.TestSuiteName.StringVal
+			} else {
+				key.CombinedTestSuiteName = ""
+			}
+			a.aggregatedTestRunsByName[key] = row
 		}
 	})
 
@@ -405,10 +418,10 @@ func (a *weeklyAverageFromTenDays) CheckPercentileRankDisruption(ctx context.Con
 	return a.checkPercentileDisruption(jobRunIDToAvailabilityResultForBackend, historicalDisruptionStatistic, thresholdPercentile)
 }
 
-func (a *weeklyAverageFromTenDays) CheckFailed(ctx context.Context, suiteNames []string, testCaseDetails *TestCaseDetails) (testCaseStatus, string, error) {
-	if testShouldAlwaysPass(testCaseDetails.Name) {
-		fmt.Printf("always passing %q\n", testCaseDetails.Name)
-		return testCasePassed, "always passing", nil
+func (a *weeklyAverageFromTenDays) CheckFailed(ctx context.Context, jobName string, suiteNames []string, testCaseDetails *TestCaseDetails) (testCaseStatus, string, error) {
+	if reason := testShouldAlwaysPass(jobName, testCaseDetails.Name, testCaseDetails.TestSuiteName); len(reason) > 0 {
+		reason := fmt.Sprintf("always passing %q: %v\n", testCaseDetails.Name, reason)
+		return testCasePassed, reason, nil
 	}
 	if !didTestRun(testCaseDetails) {
 		return testCasePassed, "did not run", nil
@@ -444,11 +457,15 @@ func (a *weeklyAverageFromTenDays) CheckFailed(ctx context.Context, suiteNames [
 	aggregatedTestRunsByName, err := a.getAggregatedTestRuns(ctx)
 	missingAllHistoricalData := false
 	if err != nil {
-		fmt.Printf("error getting past reliability data, assume 99%% pass: %v", err)
+		fmt.Printf("error getting past reliability data, assume 99%% pass: %v\n", err)
 		missingAllHistoricalData = true
 	}
 
-	averageTestResult, ok := aggregatedTestRunsByName[testCaseDetails.Name]
+	testKey := TestKey{
+		TestCaseName:          testCaseDetails.Name,
+		CombinedTestSuiteName: testCaseDetails.TestSuiteName,
+	}
+	averageTestResult, ok := aggregatedTestRunsByName[testKey]
 	// the linter requires not setting a default value. This seems strictly worse and more error-prone to me, but
 	// I am a slave to the bot.
 	var workingPercentage int
@@ -459,7 +476,7 @@ func (a *weeklyAverageFromTenDays) CheckFailed(ctx context.Context, suiteNames [
 		fmt.Printf("missing historical data for %v, arbitrarily assigning 70%% because David thought it was better than failing\n", testCaseDetails.Name)
 		workingPercentage = 70
 	default:
-		workingPercentage = averageTestResult.WorkingPercentage
+		workingPercentage = int(averageTestResult.WorkingPercentage)
 	}
 
 	requiredNumberOfPasses := requiredPassesByPassPercentageByNumberOfAttempts[numberOfAttempts][workingPercentage]
@@ -481,22 +498,70 @@ func (a *weeklyAverageFromTenDays) CheckFailed(ctx context.Context, suiteNames [
 	), nil
 }
 
-func testShouldAlwaysPass(name string) bool {
-	if strings.HasPrefix(name, "Run multi-stage test ") {
-		switch {
-		// used to aggregate overall upgrade result for a single job.  Since we aggregated all the junits, we don't care about this
-		// sub-aggregation. The analysis job runs can all fail on different tests, but the aggregated job will succeed.
-		case strings.HasSuffix(name, "-openshift-e2e-test container test"):
-			return true
-		}
-	}
-	if strings.Contains(name, `Cluster should remain functional during upgrade`) {
-		// this test is a side-effect of other tests.  For the purpose of aggregation, we can have each individual job run
-		// fail this test, but the aggregated output can be successful.
-		return true
+var testsRequiringHistoryRewrite = make(map[testCoordinates]string)
+
+type testCoordinates struct {
+	jobName       string
+	testName      string
+	testSuiteName string
+}
+
+func init() {
+	/* This is an example for creating testCoordinates for the same test from multiple jobs
+	for _, jobName := range []string{
+		"periodic-ci-openshift-release-master-ci-4.10-e2e-azure-ovn-upgrade",
+		"periodic-ci-openshift-release-master-ci-4.10-upgrade-from-stable-4.9-e2e-azure-upgrade",
+	} {
+		testsRequiringHistoryRewrite[testCoordinates{
+			jobName:       jobName,
+			testName:      "[sig-network-edge] Application behind service load balancer with PDB remains available using new connections",
+			testSuiteName: "Cluster upgrade",
+		}] = "history correction on kube update, expires 2022-01-24 - https://bugzilla.redhat.com/show_bug.cgi?id=2040715"
+	}*/
+
+	testsRequiringHistoryRewrite[testCoordinates{
+		jobName:       "periodic-ci-openshift-release-master-ci-4.10-upgrade-from-stable-4.9-e2e-aws-ovn-upgrade",
+		testName:      "[sig-network] pods should successfully create sandboxes by other",
+		testSuiteName: "openshift-tests-upgrade",
+	}] = "Test has been failing for a longtime but went undetected"
+}
+
+// testShouldAlwaysPass returns a reason if a test should be skipped and considered always passing, or empty
+// string if we should proceed with normal test analysis.
+func testShouldAlwaysPass(jobName, testName, testSuiteName string) string {
+	coordinates := testCoordinates{
+		jobName:       jobName,
+		testName:      testName,
+		testSuiteName: testSuiteName,
 	}
 
-	return false
+	if reason := testsRequiringHistoryRewrite[coordinates]; len(reason) > 0 {
+		return reason
+	}
+
+	if testSuiteName == "step graph" {
+		// examples: "step graph.Run multi-stage test post phase"
+		return "step graph tests are added by ci and are not useful for aggregation"
+	}
+
+	if strings.Contains(testName, `Cluster should remain functional during upgrade`) {
+		// this test is a side-effect of other tests.  For the purpose of aggregation, we can have each individual job run
+		// fail this test, but the aggregated output can be successful.
+		return "this test is a side-effect of other tests"
+	}
+
+	if strings.HasSuffix(testName, "-gather-azure-cli container test") {
+		// this is only for gathering artifacts.
+		return "used only to collect artifacts"
+	}
+
+	if testName == "initialize" {
+		// initialize test appears only when job run fails so job run will fail anyway
+		//
+		return "ignore initialize"
+	}
+
+	return ""
 }
 
 // these are the required number of passes for a given percentage of historical pass rate.  One var each for

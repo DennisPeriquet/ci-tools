@@ -21,6 +21,26 @@ func newJob(name string) *jobRowBuilder {
 		platform = azure
 	case strings.Contains(name, "metal"):
 		platform = metal
+	case strings.Contains(name, "vsphere"):
+		platform = vsphere
+	case strings.Contains(name, "ovirt"):
+		platform = ovirt
+	case strings.Contains(name, "openstack"):
+		platform = openstack
+	case strings.Contains(name, "libvirt"):
+		platform = libvirt
+	}
+
+	architecture := ""
+	switch {
+	case strings.Contains(name, "arm64"):
+		architecture = arm64
+	case strings.Contains(name, "ppc64le"):
+		architecture = ppc64le
+	case strings.Contains(name, "s390x"):
+		architecture = s390x
+	default:
+		architecture = amd64
 	}
 
 	runsUpgrade := false
@@ -78,6 +98,7 @@ func newJob(name string) *jobRowBuilder {
 			GCSBucketName:               "origin-ci-test",
 			GCSJobHistoryLocationPrefix: "logs/" + name,
 			Platform:                    platform,
+			Architecture:                architecture,
 			Network:                     network,
 			IPMode:                      ipMode,
 			Topology:                    topology,

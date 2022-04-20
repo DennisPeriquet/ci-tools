@@ -90,8 +90,10 @@ func (a *repoClientAdapter) MirrorClone() error {
 	return errors.New("no MirrorClone implementation exists in the v1 repo client")
 }
 
-func (a *repoClientAdapter) Fetch() error {
-	return a.Repo.Fetch()
+func (a *repoClientAdapter) Fetch(arg ...string) error {
+	// TODO(mpherman): Bring adapter Fetch in line with gitv2 fetch without hard-coding origin as remote.
+	args := append([]string{"origin"}, arg...)
+	return a.Repo.Fetch(args...)
 }
 
 func (a *repoClientAdapter) FetchFromRemote(resolver RemoteResolver, branch string) error {

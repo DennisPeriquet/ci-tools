@@ -101,7 +101,7 @@ type Client interface {
 }
 
 // NewClient returns a bugzilla client.
-func NewClient(getAPIKey func() []byte, endpoint string, githubExternalTrackerId uint) Client {
+func NewClient(getAPIKey func() []byte, endpoint string, githubExternalTrackerId uint, authMethod string) Client {
 	return &client{
 		logger: logrus.WithField("client", "bugzilla"),
 		delegate: &delegate{
@@ -109,6 +109,7 @@ func NewClient(getAPIKey func() []byte, endpoint string, githubExternalTrackerId
 			endpoint:                endpoint,
 			githubExternalTrackerId: githubExternalTrackerId,
 			getAPIKey:               getAPIKey,
+			authMethod:              authMethod,
 		},
 	}
 }
@@ -821,7 +822,6 @@ func (c *client) AddPullRequestAsExternalBug(id int, org, repo string, num int) 
 		Method:  "ExternalBugs.add_external_bug",
 		ID:      "identifier", // this is useful when fielding asynchronous responses, but not here
 		Parameters: []AddExternalBugParameters{{
-			APIKey:       string(c.getAPIKey()),
 			BugIDs:       []int{id},
 			ExternalBugs: []ExternalBugIdentifier{bugIdentifier},
 		}},
@@ -905,7 +905,6 @@ func (c *client) RemovePullRequestAsExternalBug(id int, org, repo string, num in
 		Method:  "ExternalBugs.remove_external_bug",
 		ID:      "identifier", // this is useful when fielding asynchronous responses, but not here
 		Parameters: []RemoveExternalBugParameters{{
-			APIKey: string(c.getAPIKey()),
 			BugIDs: []int{id},
 			ExternalBugIdentifier: ExternalBugIdentifier{
 				Type: "https://github.com/",
@@ -968,11 +967,11 @@ func IdentifierForPull(org, repo string, num int) string {
 
 func PullFromIdentifier(identifier string) (org, repo string, num int, err error) {
 	parts := strings.Split(identifier, "/")
+	if len(parts) >= 3 && parts[2] != "pull" {
+		return "", "", 0, &identifierNotForPull{identifier: identifier}
+	}
 	if len(parts) != 4 && !(len(parts) == 5 && (parts[4] == "" || parts[4] == "files")) && !(len(parts) == 6 && (parts[4] == "files" && parts[5] == "")) {
 		return "", "", 0, fmt.Errorf("invalid pull identifier with %d parts: %q", len(parts), identifier)
-	}
-	if parts[2] != "pull" {
-		return "", "", 0, &identifierNotForPull{identifier: identifier}
 	}
 	number, err := strconv.Atoi(parts[3])
 	if err != nil {

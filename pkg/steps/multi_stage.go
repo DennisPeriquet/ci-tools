@@ -138,7 +138,7 @@ func (s *multiStageTestStep) run(ctx context.Context) error {
 	if err := s.createSharedDirSecret(ctx); err != nil {
 		return fmt.Errorf("failed to create secret: %w", err)
 	}
-	if err := s.createCredentials(); err != nil {
+	if err := s.createCredentials(ctx); err != nil {
 		return fmt.Errorf("failed to create credentials: %w", err)
 	}
 	if err := s.createCommandConfigMaps(ctx); err != nil {
@@ -152,12 +152,12 @@ func (s *multiStageTestStep) run(ctx context.Context) error {
 		return err
 	}
 	var errs []error
-	if err := s.runSteps(ctx, s.pre, env, true, false, secretVolumes, secretVolumeMounts); err != nil {
+	if err := s.runSteps(ctx, "pre", s.pre, env, true, false, secretVolumes, secretVolumeMounts); err != nil {
 		errs = append(errs, fmt.Errorf("%q pre steps failed: %w", s.name, err))
-	} else if err := s.runSteps(ctx, s.test, env, true, len(errs) != 0, secretVolumes, secretVolumeMounts); err != nil {
+	} else if err := s.runSteps(ctx, "test", s.test, env, true, len(errs) != 0, secretVolumes, secretVolumeMounts); err != nil {
 		errs = append(errs, fmt.Errorf("%q test steps failed: %w", s.name, err))
 	}
-	if err := s.runSteps(context.Background(), s.post, env, false, len(errs) != 0, secretVolumes, secretVolumeMounts); err != nil {
+	if err := s.runSteps(context.Background(), "post", s.post, env, false, len(errs) != 0, secretVolumes, secretVolumeMounts); err != nil {
 		errs = append(errs, fmt.Errorf("%q post steps failed: %w", s.name, err))
 	}
 	return utilerrors.NewAggregate(errs)
@@ -321,7 +321,7 @@ func (s *multiStageTestStep) createSharedDirSecret(ctx context.Context) error {
 	return s.client.Create(ctx, secret)
 }
 
-func (s *multiStageTestStep) createCredentials() error {
+func (s *multiStageTestStep) createCredentials(ctx context.Context) error {
 	logrus.Debugf("Creating multi-stage test credentials for %q", s.name)
 	toCreate := map[string]*coreapi.Secret{}
 	for _, step := range append(s.pre, append(s.test, s.post...)...) {
@@ -331,8 +331,11 @@ func (s *multiStageTestStep) createCredentials() error {
 			// chance we get a second-level collision (ns-a, name) and (ns, a-name) is
 			// small, so we can get away with this string prefixing
 			name := fmt.Sprintf("%s-%s", credential.Namespace, credential.Name)
+			if _, ok := toCreate[name]; ok {
+				continue
+			}
 			raw := &coreapi.Secret{}
-			if err := s.client.Get(context.TODO(), ctrlruntimeclient.ObjectKey{Namespace: credential.Namespace, Name: credential.Name}, raw); err != nil {
+			if err := s.client.Get(ctx, ctrlruntimeclient.ObjectKey{Namespace: credential.Namespace, Name: credential.Name}, raw); err != nil {
 				return fmt.Errorf("could not read source credential: %w", err)
 			}
 			toCreate[name] = &coreapi.Secret{
@@ -349,7 +352,7 @@ func (s *multiStageTestStep) createCredentials() error {
 	}
 
 	for name := range toCreate {
-		if err := s.client.Create(context.TODO(), toCreate[name]); err != nil && !kerrors.IsAlreadyExists(err) {
+		if err := s.client.Create(ctx, toCreate[name]); err != nil && !kerrors.IsAlreadyExists(err) {
 			return fmt.Errorf("could not create source credential: %w", err)
 		}
 	}
@@ -388,6 +391,7 @@ func commandConfigMapForTest(testName string) string {
 
 func (s *multiStageTestStep) runSteps(
 	ctx context.Context,
+	phase string,
 	steps []api.LiteralTestStep,
 	env []coreapi.EnvVar,
 	shortCircuit bool,
@@ -395,6 +399,8 @@ func (s *multiStageTestStep) runSteps(
 	secretVolumes []coreapi.Volume,
 	secretVolumeMounts []coreapi.VolumeMount,
 ) error {
+	start := time.Now()
+	logrus.Infof("Running multi-stage phase %s", phase)
 	pods, isBestEffort, err := s.generatePods(steps, env, hasPrevErrs, secretVolumes, secretVolumeMounts)
 	if err != nil {
 		return err
@@ -431,7 +437,26 @@ func (s *multiStageTestStep) runSteps(
 	default:
 		break
 	}
-	return utilerrors.NewAggregate(errs)
+
+	err = utilerrors.NewAggregate(errs)
+	finished := time.Now()
+	duration := finished.Sub(start)
+	testCase := &junit.TestCase{
+		Name:      fmt.Sprintf("Run multi-stage test %s phase", phase),
+		Duration:  duration.Seconds(),
+		SystemOut: fmt.Sprintf("The collected steps of multi-stage phase %s.", phase),
+	}
+	verb := "succeeded"
+	if err != nil {
+		verb = "failed"
+		testCase.FailureOutput = &junit.FailureOutput{
+			Output: err.Error(),
+		}
+	}
+	s.subTests = append(s.subTests, testCase)
+	logrus.Infof("Step phase %s %s after %s.", phase, verb, duration.Truncate(time.Second))
+
+	return err
 }
 
 const multiStageTestStepContainerName = "test"

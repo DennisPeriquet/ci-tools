@@ -15,7 +15,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
-	"reflect"
+	"sort"
 	"strings"
 
 	"github.com/sirupsen/logrus"
@@ -94,6 +94,24 @@ func (o *options) Validate() error {
 const (
 	logStyleJson = "json"
 	logStyleText = "text"
+)
+
+var (
+	// Valid cluster profile options and their associated workflows.
+	// This is supposed to be a simple, non-exhaustive list of profiles that are
+	// commonly used.  Advanced users can edit the configuration themselves.
+	clusterProfiles = map[api.ClusterProfile]string{
+		api.ClusterProfileAWS:   "ipi-aws",
+		api.ClusterProfileAzure: "ipi-azure",
+		api.ClusterProfileGCP:   "ipi-gcp",
+	}
+	clusterProfileList = func() (ret []api.ClusterProfile) {
+		for k := range clusterProfiles {
+			ret = append(ret, k)
+		}
+		sort.Slice(ret, func(i, j int) bool { return ret[i] < ret[j] })
+		return
+	}()
 )
 
 func gatherOptions() options {
@@ -323,11 +341,10 @@ A test named %s already exists. Please choose a different name.\n`, test.As)
 				}
 			}
 
-			clusterProfiles := sets.NewString("gcp", "aws", "azure")
 			test.Profile = api.ClusterProfile(fetchOrDefaultWithPrompt("Which specific cloud provider does the test require, if any? ", string(api.ClusterProfileAWS)))
 			for {
-				if !clusterProfiles.Has(string(test.Profile)) {
-					fmt.Printf("Cluster profile %s is not valid. Please choose one from: %s.\n", test.Profile, strings.Join(clusterProfiles.List(), ", "))
+				if clusterProfiles[test.Profile] == "" {
+					fmt.Printf("Cluster profile %s is not valid. Please choose one from: %s.\n", test.Profile, clusterProfileList)
 					test.Profile = api.ClusterProfile(fetchOrDefaultWithPrompt("Which specific cloud provider does the test require, if any? ", string(api.ClusterProfileAWS)))
 				} else {
 					break
@@ -462,25 +479,23 @@ func fetchOrDefaultWithPrompt(msg, def string) string {
 	return ""
 }
 
-func updateProwConfig(config initConfig, releaseRepo string) error {
-	configPath := path.Join(releaseRepo, ciopconfig.ConfigInRepoPath)
-	agent := prowconfig.Agent{}
-	if err := agent.Start(configPath, "", nil, ""); err != nil {
-		return fmt.Errorf("could not load Prow configuration: %w", err)
-	}
-
-	prowConfig := agent.Config()
-	editProwConfig(prowConfig, config)
-
-	data, err := yaml.Marshal(prowConfig)
-	if err != nil {
-		return fmt.Errorf("could not marshal Prow configuration: %w", err)
-	}
-
-	return ioutil.WriteFile(configPath, data, 0644)
+// RepoProwConfig represents the Prow configuration for the org/repo
+// Currently we generate only the queries in tide's configuration for the new repo.
+type RepoProwConfig struct {
+	Tide TideRepoProwConfig `json:"tide,omitempty"`
 }
 
-func editProwConfig(prowConfig *prowconfig.Config, config initConfig) {
+// TideRepoProwConfig represents the tide configuration for the org/repo
+type TideRepoProwConfig struct {
+	Queries prowconfig.TideQueries `json:"queries,omitempty"`
+}
+
+func updateProwConfig(config initConfig, releaseRepo string) (ret error) {
+	prowConfig, err := ciopconfig.LoadProwConfig(releaseRepo)
+	if err != nil {
+		return fmt.Errorf("failed to load Prow config: %w", err)
+	}
+
 	fmt.Println(`
 Updating Prow configuration ...`)
 	queries := prowConfig.Tide.Queries.QueryMap()
@@ -496,7 +511,7 @@ Updating Prow configuration ...`)
 
 No additional "tide" queries will be added.
 `, config.Org, config.Repo, strings.Join(existingStrings, "\n"))
-		return
+		return nil
 	}
 
 	// this is a bit hacky but simple -- we have a couple types of tide interactions
@@ -510,14 +525,27 @@ No additional "tide" queries will be added.
 		copyCatQueries = queries.ForRepo(prowconfig.OrgRepo{Org: "openshift", Repo: "ci-tools"})
 	}
 
-	orgRepo := fmt.Sprintf("%s/%s", config.Org, config.Repo)
-	for i := range prowConfig.Tide.Queries {
-		for _, copyCat := range copyCatQueries {
-			if reflect.DeepEqual(prowConfig.Tide.Queries[i], copyCat) {
-				prowConfig.Tide.Queries[i].Repos = append(prowConfig.Tide.Queries[i].Repos, orgRepo)
-			}
-		}
+	tideQueries := prowconfig.TideQueries(nil)
+	for _, q := range copyCatQueries {
+		q.Repos = []string{prowconfig.OrgRepo{Org: config.Org, Repo: config.Repo}.String()}
+		tideQueries = append(tideQueries, q)
 	}
+	repoProwConfig := RepoProwConfig{
+		Tide: TideRepoProwConfig{
+			Queries: tideQueries,
+		},
+	}
+
+	data, err := yaml.Marshal(repoProwConfig)
+	if err != nil {
+		return fmt.Errorf("could not marshal Prow configuration: %w", err)
+	}
+
+	p := ciopconfig.ProwConfigForOrgRepo(releaseRepo, config.Org, config.Repo)
+	if err := os.MkdirAll(path.Dir(p), 0755); err != nil {
+		return fmt.Errorf("failed to create directory: %w", err)
+	}
+	return ioutil.WriteFile(p, data, 0644)
 }
 
 func updatePluginConfig(config initConfig, releaseRepo string) error {
@@ -526,7 +554,7 @@ Updating Prow plugin configuration ...`)
 	configPath := path.Join(releaseRepo, ciopconfig.PluginConfigInRepoPath)
 	supplementalPluginConfigDir := path.Join(releaseRepo, filepath.Dir(ciopconfig.PluginConfigInRepoPath))
 	agent := plugins.ConfigAgent{}
-	if err := agent.Load(configPath, []string{supplementalPluginConfigDir}, "_pluginconfig.yaml", false, false); err != nil {
+	if err := agent.Load(configPath, []string{supplementalPluginConfigDir}, "_pluginconfig.yaml", false, true); err != nil {
 		return fmt.Errorf("could not load Prow plugin configuration: %w", err)
 	}
 
@@ -664,7 +692,7 @@ func generateCIOperatorConfig(config initConfig, originConfig *api.PromotionConf
 				As: "e2e-aws",
 				MultiStageTestConfiguration: &api.MultiStageTestConfiguration{
 					Workflow:       &workflow,
-					ClusterProfile: "aws",
+					ClusterProfile: api.ClusterProfileAWS,
 				},
 			})
 		}
@@ -740,7 +768,6 @@ func generateCIOperatorConfig(config initConfig, originConfig *api.PromotionConf
 		t := api.TestStepConfiguration{
 			As: test.As,
 			MultiStageTestConfiguration: &api.MultiStageTestConfiguration{
-				Workflow:       determineWorkflow(test.Workflow, test.Profile),
 				ClusterProfile: test.Profile,
 				Environment:    test.Environment,
 				Dependencies:   test.Dependencies,
@@ -756,7 +783,11 @@ func generateCIOperatorConfig(config initConfig, originConfig *api.PromotionConf
 				},
 			},
 		}
-
+		if w := test.Workflow; w != "" {
+			t.MultiStageTestConfiguration.Workflow = &w
+		} else if w := clusterProfiles[test.Profile]; w != "" {
+			t.MultiStageTestConfiguration.Workflow = &w
+		}
 		if test.Cli {
 			t.MultiStageTestConfiguration.Test[0].Cli = "latest"
 		}
@@ -785,29 +816,6 @@ func generateCIOperatorConfig(config initConfig, originConfig *api.PromotionConf
 	}
 
 	return generated
-}
-
-func determineWorkflow(workflow string, clusterProfile api.ClusterProfile) *string {
-	var ret string
-	if workflow != "" {
-		ret = workflow
-	} else {
-		switch clusterProfile {
-		case api.ClusterProfileAWS:
-			ret = "ipi-aws"
-		case api.ClusterProfileAWSArm64:
-			ret = "ipi-aws"
-		case api.ClusterProfileAzure, api.ClusterProfileAzure2, api.ClusterProfileAzure4:
-			ret = "ipi-azure"
-		case api.ClusterProfileAzureStack:
-			ret = "ipi-azurestack"
-		case api.ClusterProfileGCP:
-			ret = "ipi-gcp"
-		case api.ClusterProfileAlibabaCloud:
-			ret = "ipi-alibabacloud"
-		}
-	}
-	return &ret
 }
 
 func getTestResourceRequest(test e2eTest) api.ResourceRequirements {
