@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"time"
 
 	"github.com/sirupsen/logrus"
 	"golang.org/x/sync/semaphore"
@@ -35,9 +36,24 @@ type allJobsLoaderOptions struct {
 	shouldCollectedDataForJobFn shouldCollectDataForJobFunc
 	getLastJobRunWithDataFn     getLastJobRunWithDataFunc
 	jobRunUploader              uploader
+	logLevel                    string
+}
+
+type queueJob struct {
+	jobRow jobrunaggregatorapi.JobRow
+	index  int
 }
 
 func (o *allJobsLoaderOptions) Run(ctx context.Context) error {
+	start := time.Now()
+
+	// Set log level
+	level, err := logrus.ParseLevel(o.logLevel)
+	if err != nil {
+		logrus.WithError(err).Fatal("Cannot parse log-level")
+	}
+	logrus.SetLevel(level)
+
 	logrus.Infof("Locating jobs")
 
 	jobs, err := o.ciDataClient.ListAllJobs(ctx)
@@ -48,46 +64,61 @@ func (o *allJobsLoaderOptions) Run(ctx context.Context) error {
 
 	logrus.Infof("Launching threads to upload test runs for %d jobs", jobCount)
 
-	waitGroup := sync.WaitGroup{}
-	errCh := make(chan error, len(jobs))
+	wg := sync.WaitGroup{}
+	jobChan := make(chan queueJob, jobCount)
+	errChan := make(chan error, jobCount)
+	// Max ten concurrent job imports but note there's another layer of concurrency beneath this for the file uploads
+	for i := 0; i < 10; i++ {
+		wg.Add(1)
+		go o.jobQueue(ctx, i, jobCount, jobChan, errChan)
+	}
+
 	for i := range jobs {
 		job := jobs[i]
-
-		jobLogger := logrus.WithFields(logrus.Fields{
-			"job": job.JobName,
-		})
-
-		if !o.shouldCollectedDataForJobFn(job) {
-			jobLogger.Info("skipping job")
-			continue
-		}
-
-		jobLogger.Info("launching")
-
-		waitGroup.Add(1)
-		go func() {
-			defer waitGroup.Done()
-
-			jobLoader := o.newJobBigQueryLoaderOptions(job, jobLogger)
-			err := jobLoader.Run(ctx)
-			if err != nil {
-				errCh <- err
-			}
-		}()
+		jobChan <- queueJob{jobRow: job, index: i}
 	}
-	waitGroup.Wait()
-	close(errCh)
 
-	logrus.Infof("completed upload for %d jobs", jobCount)
+	wg.Wait()
+	close(jobChan)
+	close(errChan)
 
 	errs := []error{}
-	for err := range errCh {
-		errs = append(errs, err)
+	for e := range errChan {
+		logrus.WithError(e).Error("error encountered during upload")
+		errs = append(errs, e)
 	}
+
+	duration := time.Now().Sub(start)
+	logrus.WithFields(logrus.Fields{
+		"jobs":     jobCount,
+		"duration": duration,
+		"errors":   len(errs),
+	}).Info("completed upload")
 
 	return utilerrors.NewAggregate(errs)
 }
 
+func (o *allJobsLoaderOptions) jobQueue(ctx context.Context, workerThread, jobCount int, jobChan <-chan queueJob, errChan chan<- error) {
+	for job := range jobChan {
+		jobLogger := logrus.WithFields(logrus.Fields{
+			"job":      job.jobRow.JobName,
+			"worker":   workerThread,
+			"progress": fmt.Sprintf("%d/%d", job.index, jobCount),
+		})
+
+		if !o.shouldCollectedDataForJobFn(job.jobRow) {
+			jobLogger.Info("skipping job")
+			continue
+		}
+
+		jobLoader := o.newJobBigQueryLoaderOptions(job.jobRow, jobLogger)
+		err := jobLoader.Run(ctx)
+		if err != nil {
+			jobLogger.WithError(err).Error("error uploading job runs for job")
+			errChan <- err
+		}
+	}
+}
 func (o *allJobsLoaderOptions) newJobBigQueryLoaderOptions(job jobrunaggregatorapi.JobRow, logger logrus.FieldLogger) *jobLoaderOptions {
 
 	return &jobLoaderOptions{
@@ -122,8 +153,8 @@ type jobLoaderOptions struct {
 }
 
 func (o *jobLoaderOptions) Run(ctx context.Context) error {
-	o.logger.Info("Analyzing job")
 
+	o.logger.Info("processing job")
 	lastJobRun, err := o.getLastJobRunWithDataFn(ctx, o.jobName)
 	if err != nil {
 		return err
@@ -160,6 +191,7 @@ func (o *jobLoaderOptions) Run(ctx context.Context) error {
 		lastDoneUploadingCh = jobRunInserter.doneUploading
 
 		if err := concurrentWorkers.Acquire(ctx, 1); err != nil {
+			o.logger.WithError(err).Info("context is done")
 			// this means the context is done
 			return err
 		}
@@ -170,6 +202,7 @@ func (o *jobLoaderOptions) Run(ctx context.Context) error {
 			defer currentUploaders.Done()
 
 			if err := jobRunInserter.Run(ctx); err != nil {
+				o.logger.WithField("jobRun", jobRunID).WithError(err).Error("error inserting job run")
 				errorCh <- err
 			}
 		}()
@@ -230,6 +263,7 @@ func (o *jobRunLoaderOptions) Run(ctx context.Context) error {
 
 	jobRun, err := o.readJobRunFromGCS(ctx)
 	if err != nil {
+		o.logger.WithError(err).Error("error reading job run from GCS")
 		return err
 	}
 	// this can happen if there is no prowjob.json, so no work to do.
@@ -248,7 +282,6 @@ func (o *jobRunLoaderOptions) Run(ctx context.Context) error {
 	}
 
 	if err := o.uploadJobRun(ctx, jobRun); err != nil {
-		o.logger.WithError(err).Error("failed to upload jobrun to bigquery")
 		return fmt.Errorf("jobrun/%v/%v failed to upload to bigquery: %w", o.jobName, o.jobRunID, err)
 	}
 

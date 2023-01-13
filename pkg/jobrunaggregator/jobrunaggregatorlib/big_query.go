@@ -1,13 +1,13 @@
 package jobrunaggregatorlib
 
 import (
-	"bytes"
 	"context"
 	"fmt"
 	"io"
 	"reflect"
 	"strings"
 
+	"github.com/sirupsen/logrus"
 	"github.com/spf13/pflag"
 
 	"github.com/openshift/ci-tools/pkg/jobrunaggregator/jobrunaggregatorapi"
@@ -81,7 +81,7 @@ func NewDryRunInserter(out io.Writer, table string) BigQueryInserter {
 func (d dryRunInserter) Put(ctx context.Context, src interface{}) (err error) {
 	srcVal := reflect.ValueOf(src)
 	if srcVal.Kind() != reflect.Slice {
-		fmt.Fprintf(d.out, "INSERT into %v: %v\n", d.table, src)
+		logrus.Debugf("INSERT into %s: %v", d.table, src)
 		return
 	}
 
@@ -89,30 +89,27 @@ func (d dryRunInserter) Put(ctx context.Context, src interface{}) (err error) {
 		return
 	}
 
-	buf := &bytes.Buffer{}
-	fmt.Fprintf(buf, "BULK INSERT into %v\n", d.table)
+	logrus.Debugf("BULK INSERT into %s", d.table)
 	for i := 0; i < srcVal.Len(); i++ {
 
 		switch s := srcVal.Index(i).Interface().(type) {
 		case *jobrunaggregatorapi.TestRunRow:
-			fmt.Fprintf(buf, "\tINSERT into %v: %#v\n", d.table, s)
+			logrus.Debugf("   INSERT into %s: %#v", d.table, s)
 
 		case *jobrunaggregatorapi.JobRunRow:
-			fmt.Fprintf(buf, "\tINSERT into %v: name=%v, jobname=%v, status=%v\n", d.table, s.Name, s.JobName, s.Status)
+			logrus.Debugf("   INSERT into %s: name=%s, jobname=%s, status=%s", d.table, s.Name, s.JobName, s.Status)
 
 		case *jobrunaggregatorapi.BackendDisruptionRow:
-			fmt.Fprintf(buf, "\tINSERT into %v: %#v\n", d.table, s)
+			logrus.Debugf("   INSERT into %s: %#v", d.table, s)
 
 		case jobrunaggregatorapi.JobRow:
-			fmt.Fprintf(buf, "\tINSERT into %v: JobName=%v\n", d.table, s.JobName)
+			logrus.Debugf("   INSERT into %s: JobName=%s\n", d.table, s.JobName)
 
 		default:
-
 			// If we don't know the type, output something generic.
-			fmt.Fprintf(buf, "\tINSERT into %v: %#v\n", d.table, s)
+			logrus.Debugf("   INSERT into %s: %#v\n", d.table, s)
 		}
 	}
-	fmt.Fprint(d.out, buf.String())
 
 	return nil
 }

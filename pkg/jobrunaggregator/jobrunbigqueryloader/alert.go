@@ -23,7 +23,8 @@ type BigQueryAlertUploadFlags struct {
 	DataCoordinates *jobrunaggregatorlib.BigQueryDataCoordinates
 	Authentication  *jobrunaggregatorlib.GoogleAuthenticationFlags
 
-	DryRun bool
+	DryRun   bool
+	LogLevel string
 }
 
 func NewBigQueryAlertUploadFlags() *BigQueryAlertUploadFlags {
@@ -38,6 +39,7 @@ func (f *BigQueryAlertUploadFlags) BindFlags(fs *pflag.FlagSet) {
 	f.Authentication.BindFlags(fs)
 
 	fs.BoolVar(&f.DryRun, "dry-run", f.DryRun, "Run the command, but don't mutate data.")
+	fs.StringVar(&f.LogLevel, "log-level", f.LogLevel, "Log level (trace,debug,info,warn,error) (default: info)")
 }
 
 func NewBigQueryAlertUploadFlagsCommand() *cobra.Command {
@@ -126,6 +128,7 @@ func (f *BigQueryAlertUploadFlags) ToOptions(ctx context.Context) (*allJobsLoade
 		},
 		getLastJobRunWithDataFn: ciDataClient.GetLastJobRunWithAlertDataForJobName,
 		jobRunUploader:          newAlertUploader(backendAlertTableInserter),
+		logLevel:                f.LogLevel,
 	}, nil
 }
 
