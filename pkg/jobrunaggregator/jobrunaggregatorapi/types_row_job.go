@@ -2,7 +2,7 @@ package jobrunaggregatorapi
 
 // The jobSchema below is used to build the "Jobs" table.
 const (
-	JobsTableName = "Jobs"
+	JobsTableName = "Jobs_Test"
 	JobSchema     = `
 [
   {

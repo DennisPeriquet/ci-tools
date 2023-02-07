@@ -203,8 +203,8 @@ func (c *ciDataClient) ListAllJobs(ctx context.Context) ([]jobrunaggregatorapi.J
 	// you debug.
 	queryString := c.dataCoordinates.SubstituteDataSetLocation(
 		`SELECT *  
-FROM DATA_SET_LOCATION.Jobs
-ORDER BY Jobs.JobName ASC
+FROM DATA_SET_LOCATION.Jobs_Test
+ORDER BY Jobs_Test.JobName ASC
 `)
 
 	query := c.client.Query(queryString)
